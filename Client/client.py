@@ -19,6 +19,12 @@ except Exception:
 
 CONFIG_FILE = "client_config.json"
 SERVER_ERROR_OFFSET = (1 << 64) - 1
+DUPLICATE_POLICIES = {
+    "Tiếp tục nếu còn thiếu": "R",
+    "Bỏ qua nếu đã có": "S",
+    "Ghi đè": "O",
+    "Đổi tên tự động": "N",
+}
 QUEUE_COLUMNS = (
     {"weight": 1, "minsize": 280},
     {"weight": 0, "minsize": 150},
@@ -75,6 +81,8 @@ class ClientApp(ClientBase):
         self.completed_count = 0
         self.failed_count = 0
         self.total_uploaded_bytes = 0
+        self.queue_total_bytes = 0
+        self.queue_done_bytes = 0
 
         self.icons = {
             "start": self.make_icon("start"),
@@ -207,6 +215,20 @@ class ClientApp(ClientBase):
         self.port_entry.grid(row=2, column=0, padx=14, pady=5, sticky="ew")
         self.server_folder_entry = ctk.CTkEntry(settings, placeholder_text="Thư mục lưu trên máy chủ", height=36, fg_color=COLORS["surface"], border_color=COLORS["border"])
         self.server_folder_entry.grid(row=3, column=0, padx=14, pady=5, sticky="ew")
+        self.duplicate_policy_menu = ctk.CTkOptionMenu(
+            settings,
+            values=list(DUPLICATE_POLICIES.keys()),
+            height=36,
+            fg_color=COLORS["surface"],
+            button_color=COLORS["surface_3"],
+            button_hover_color=COLORS["border"],
+            text_color=COLORS["text"],
+            dropdown_fg_color=COLORS["surface_2"],
+            dropdown_hover_color=COLORS["surface_3"],
+            dropdown_text_color=COLORS["text"],
+        )
+        self.duplicate_policy_menu.grid(row=4, column=0, padx=14, pady=5, sticky="ew")
+        self.duplicate_policy_menu.set("Tiếp tục nếu còn thiếu")
 
         self.save_settings_button = ctk.CTkButton(
             settings,
@@ -218,7 +240,7 @@ class ClientApp(ClientBase):
             text_color=COLORS["button_text"],
             text_color_disabled=COLORS["button_disabled_text"],
         )
-        self.save_settings_button.grid(row=4, column=0, padx=14, pady=(10, 14), sticky="ew")
+        self.save_settings_button.grid(row=5, column=0, padx=14, pady=(10, 14), sticky="ew")
 
     def create_stat_card(self, parent, row, label, value):
         card = ctk.CTkFrame(parent, fg_color=COLORS["surface_2"], corner_radius=14)
@@ -286,6 +308,11 @@ class ClientApp(ClientBase):
         self.speed_label.grid(row=0, column=1)
         self.eta_label = ctk.CTkLabel(meta, text="ETA: --", text_color=COLORS["muted"], anchor="e")
         self.eta_label.grid(row=0, column=2, sticky="e")
+        self.total_progress_bar = ctk.CTkProgressBar(card, height=8, fg_color=COLORS["surface_3"], progress_color=COLORS["success"], corner_radius=6)
+        self.total_progress_bar.grid(row=3, column=0, padx=16, pady=(0, 4), sticky="ew")
+        self.total_progress_bar.set(0)
+        self.total_progress_label = ctk.CTkLabel(card, text="Tổng: 0.00% | 0 B / 0 B", text_color=COLORS["subtle"], anchor="w", font=ctk.CTkFont(size=11))
+        self.total_progress_label.grid(row=4, column=0, padx=16, pady=(0, 10), sticky="ew")
 
     def build_queue_table(self):
         table = ctk.CTkFrame(self.main, fg_color=COLORS["surface"], corner_radius=16)
@@ -299,8 +326,10 @@ class ClientApp(ClientBase):
         toolbar.grid(row=0, column=0, padx=18, pady=(16, 10), sticky="ew")
         toolbar.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(toolbar, text="Hàng đợi gửi tệp", font=ctk.CTkFont(size=15, weight="bold"), text_color=COLORS["text"]).grid(row=0, column=0, sticky="w")
+        self.retry_button = ctk.CTkButton(toolbar, text="Gửi lại lỗi", width=126, height=32, command=self.retry_failed, fg_color=COLORS["surface_3"], hover_color=COLORS["border"], text_color=COLORS["button_text"], text_color_disabled=COLORS["button_disabled_text"])
+        self.retry_button.grid(row=0, column=1, padx=(0, 8), sticky="e")
         self.clear_button = ctk.CTkButton(toolbar, text="Xóa mục xong", width=150, height=32, command=self.clear_completed, fg_color=COLORS["surface_3"], hover_color=COLORS["border"], text_color=COLORS["button_text"], text_color_disabled=COLORS["button_disabled_text"])
-        self.clear_button.grid(row=0, column=1, sticky="e")
+        self.clear_button.grid(row=0, column=2, sticky="e")
 
         header = ctk.CTkFrame(table, fg_color=COLORS["surface_2"], corner_radius=8)
         header.grid(row=1, column=0, padx=18, pady=(0, 8), sticky="ew")
@@ -396,16 +425,25 @@ class ClientApp(ClientBase):
 
     def add_files(self, files):
         added = 0
+        duplicates = 0
         for path in files:
             normalized = os.path.abspath(path)
-            if os.path.isfile(normalized) and normalized not in self.file_paths:
-                self.file_paths.append(normalized)
-                self.add_queue_row(normalized)
-                added += 1
+            if not os.path.isfile(normalized):
+                continue
+            if normalized in self.file_paths:
+                duplicates += 1
+                continue
+            self.file_paths.append(normalized)
+            self.add_queue_row(normalized)
+            added += 1
         if added:
             self.status_label.configure(text=f"Đã thêm {added} tệp vào hàng đợi.")
             self.show_toast(f"Đã thêm {added} tệp", "success")
             self.update_ui_state()
+        if duplicates:
+            message = "Tệp đã có trong hàng đợi." if duplicates == 1 else f"{duplicates} tệp đã có trong hàng đợi."
+            self.status_label.configure(text=message)
+            self.show_toast(message, "warning")
 
     def add_queue_row(self, path):
         if self.empty_queue.winfo_exists():
@@ -455,6 +493,18 @@ class ClientApp(ClientBase):
             self.empty_queue.grid(row=0, column=0, pady=30)
         self.status_label.configure(text="Đã xóa các mục hoàn tất.")
 
+    def retry_failed(self):
+        if self.upload_state != "stopped":
+            return
+        retry_paths = [path for path in self.file_paths if self.file_states.get(path) in ("Lỗi", "Đã dừng")]
+        if not retry_paths:
+            self.show_toast("Không có tệp lỗi để gửi lại", "info")
+            return
+        for path in retry_paths:
+            self.update_row(path, progress=0, eta="--", state="Đang chờ", state_color=COLORS["surface_3"])
+        self.refresh_stats()
+        self.start_upload()
+
     def update_row(self, path, progress=None, eta=None, state=None, state_color=None):
         if path not in self.upload_rows:
             return
@@ -482,6 +532,8 @@ class ClientApp(ClientBase):
         self.speed_value.configure(text="0.00 MB/s")
         self.eta_value.configure(text="--")
         self.current_file_label.configure(text="Chưa có tệp nào đang gửi")
+        self.total_progress_bar.set(0)
+        self.total_progress_label.configure(text="Tổng: 0.00% | 0 B / 0 B")
 
     def update_ui_state(self):
         has_files = bool(self.file_paths)
@@ -491,6 +543,7 @@ class ClientApp(ClientBase):
             self.stop_button.configure(state=ctk.DISABLED)
             self.browse_button.configure(state=ctk.NORMAL)
             self.save_settings_button.configure(state=ctk.NORMAL)
+            self.retry_button.configure(state=ctk.NORMAL)
             self.state_chip.configure(text="SẴN SÀNG", fg_color=COLORS["surface_3"], text_color=COLORS["muted"])
             self.connection_pill.configure(text="CHƯA KẾT NỐI", fg_color=COLORS["surface_3"], text_color=COLORS["muted"])
         elif self.upload_state == "uploading":
@@ -499,12 +552,14 @@ class ClientApp(ClientBase):
             self.stop_button.configure(state=ctk.NORMAL)
             self.browse_button.configure(state=ctk.DISABLED)
             self.save_settings_button.configure(state=ctk.DISABLED)
+            self.retry_button.configure(state=ctk.DISABLED)
             self.state_chip.configure(text="ĐANG GỬI", fg_color=COLORS["primary"], text_color="white")
             self.connection_pill.configure(text="ĐÃ KẾT NỐI", fg_color=COLORS["success"], text_color="white")
         elif self.upload_state == "paused":
             self.start_button.configure(state=ctk.DISABLED)
             self.pause_resume_button.configure(state=ctk.NORMAL, text="Tiếp tục", image=self.icons["resume"])
             self.stop_button.configure(state=ctk.NORMAL)
+            self.retry_button.configure(state=ctk.DISABLED)
             self.state_chip.configure(text="TẠM DỪNG", fg_color=COLORS["warning"], text_color=COLORS["bg"])
 
     def start_upload(self):
@@ -555,6 +610,7 @@ class ClientApp(ClientBase):
             "server_ip": self.ip_entry.get(),
             "server_port": self.port_entry.get(),
             "server_folder": self.server_folder_entry.get(),
+            "duplicate_policy": self.duplicate_policy_menu.get(),
         }
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -566,7 +622,7 @@ class ClientApp(ClientBase):
             self.status_label.configure(text=f"Lỗi khi lưu cài đặt: {e}")
 
     def load_config(self):
-        defaults = {"server_ip": "127.0.0.1", "server_port": "8888", "server_folder": ""}
+        defaults = {"server_ip": "127.0.0.1", "server_port": "8888", "server_folder": "", "duplicate_policy": "Tiếp tục nếu còn thiếu"}
         try:
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -577,9 +633,15 @@ class ClientApp(ClientBase):
         self.ip_entry.insert(0, defaults["server_ip"])
         self.port_entry.insert(0, defaults["server_port"])
         self.server_folder_entry.insert(0, defaults["server_folder"])
+        self.duplicate_policy_menu.set(defaults.get("duplicate_policy", "Tiếp tục nếu còn thiếu"))
 
     def upload_queue_thread(self):
-        for path in list(self.file_paths):
+        pending_paths = [path for path in self.file_paths if self.file_states.get(path) not in ("Hoàn tất", "Đã bỏ qua")]
+        self.queue_total_bytes = sum(os.path.getsize(path) for path in pending_paths if os.path.exists(path))
+        self.queue_done_bytes = 0
+        self.update_total_progress(0)
+
+        for path in pending_paths:
             if self.upload_state == "stopped":
                 break
             current_state = self.file_states.get(path)
@@ -594,12 +656,20 @@ class ClientApp(ClientBase):
             self.after(0, lambda: self.status_label.configure(text="Đã gửi xong hàng đợi."))
             self.show_toast("Đã gửi xong hàng đợi", "success")
 
+    def update_total_progress(self, current_file_bytes=0):
+        total_done = min(self.queue_done_bytes + current_file_bytes, self.queue_total_bytes)
+        progress = total_done / self.queue_total_bytes if self.queue_total_bytes else 0
+        text = f"Tổng: {progress:.2%} | {self.format_bytes(total_done)} / {self.format_bytes(self.queue_total_bytes)}"
+        self.after(0, lambda p=progress: self.total_progress_bar.set(p))
+        self.after(0, lambda value=text: self.total_progress_label.configure(text=value))
+
     def upload_single_file(self, file_path):
         server_ip = self.ip_entry.get()
         server_port = int(self.port_entry.get())
         file_name = os.path.basename(file_path)
         file_size = os.path.getsize(file_path)
         target_dir = self.server_folder_entry.get().strip()
+        duplicate_policy = DUPLICATE_POLICIES.get(self.duplicate_policy_menu.get(), "R")
 
         self.after(0, lambda: self.current_file_label.configure(text=file_name))
         self.update_row(file_path, state="Đang kết nối", state_color=COLORS["warning"])
@@ -620,6 +690,7 @@ class ClientApp(ClientBase):
             self.client_socket.sendall(struct.pack("!I", len(file_name_bytes)))
             self.client_socket.sendall(file_name_bytes)
             self.client_socket.sendall(struct.pack("!Q", file_size))
+            self.client_socket.sendall(duplicate_policy.encode())
 
             offset_data = self.recv_exact(self.client_socket, 8)
             offset = struct.unpack("!Q", offset_data)[0]
@@ -629,6 +700,8 @@ class ClientApp(ClientBase):
             if offset >= file_size:
                 self.completed_count += 1
                 self.update_row(file_path, progress=1, eta="0s", state="Đã bỏ qua", state_color=COLORS["success"])
+                self.queue_done_bytes += file_size
+                self.update_total_progress(0)
                 self.refresh_stats()
                 return
 
@@ -676,6 +749,7 @@ class ClientApp(ClientBase):
                         self.after(0, lambda e=eta_text: self.eta_label.configure(text=f"ETA: {e}"))
                         self.after(0, lambda s=speed_mb: self.speed_value.configure(text=f"{s:.2f} MB/s"))
                         self.after(0, lambda e=eta_text: self.eta_value.configure(text=e))
+                        self.update_total_progress(sent_bytes)
                         self.update_row(file_path, progress=progress, eta=eta_text, state="Đang gửi", state_color=COLORS["primary"])
 
                         last_update_time = now
@@ -686,6 +760,8 @@ class ClientApp(ClientBase):
             else:
                 self.completed_count += 1
                 self.update_row(file_path, progress=1, eta="0s", state="Hoàn tất", state_color=COLORS["success"])
+                self.queue_done_bytes += file_size
+                self.update_total_progress(0)
                 self.after(0, lambda: self.status_label.configure(text=f"Hoàn tất: {file_name}"))
                 self.show_toast(f"Đã gửi xong {file_name}", "success")
 
@@ -710,6 +786,8 @@ class ClientApp(ClientBase):
                     pass
                 self.client_socket = None
             self.refresh_stats()
+            if self.upload_state == "stopped":
+                self.after(0, self.update_ui_state)
 
     def recv_exact(self, sock, size):
         chunks = []
@@ -723,8 +801,10 @@ class ClientApp(ClientBase):
         return b"".join(chunks)
 
     def refresh_stats(self):
-        self.after(0, lambda: self.done_value.configure(text=f"{self.completed_count} tệp"))
-        self.after(0, lambda: self.failed_value.configure(text=f"{self.failed_count} tệp"))
+        done = sum(1 for state in self.file_states.values() if state in ("Hoàn tất", "Đã bỏ qua"))
+        failed = sum(1 for state in self.file_states.values() if state == "Lỗi")
+        self.after(0, lambda: self.done_value.configure(text=f"{done} tệp"))
+        self.after(0, lambda: self.failed_value.configure(text=f"{failed} tệp"))
 
     def format_bytes(self, value):
         value = float(value)

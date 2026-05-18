@@ -1,5 +1,6 @@
 {
   "server_ip": "127.0.0.1",
   "server_port": "8888",
-  "server_folder": "qu\u1ea7n qu\u00e8"
+  "server_folder": "",
+  "duplicate_policy": "Ti\u1ebfp t\u1ee5c n\u1ebfu c\u00f2n thi\u1ebfu"
 }

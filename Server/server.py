@@ -1,10 +1,12 @@
 import customtkinter as ctk
+from tkinter import filedialog
 import socket
 import threading
 import os
 import shutil
 import struct
 import time
+import json
 from datetime import datetime
 
 COLORS = {
@@ -28,6 +30,7 @@ COLORS = {
 
 SERVER_ERROR_OFFSET = (1 << 64) - 1
 MIN_FREE_SPACE_BUFFER = 5 * 1024 * 1024
+SERVER_CONFIG_FILE = "server_config.json"
 
 TRANSFER_COLUMNS = (
     {"weight": 1, "minsize": 260},
@@ -60,6 +63,7 @@ class ServerApp(ctk.CTk):
         self.total_bytes = 0
         self.failed_uploads = 0
         self.started_at = None
+        self.upload_dir = os.path.abspath("Uploads")
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -67,6 +71,8 @@ class ServerApp(ctk.CTk):
         self.build_header()
         self.build_dashboard()
         self.build_content()
+        self.load_config()
+        self.refresh_server_address()
 
         self.log("Bảng điều khiển máy chủ đã sẵn sàng.")
         self.update_dashboard()
@@ -97,6 +103,8 @@ class ServerApp(ctk.CTk):
         self.port_entry = ctk.CTkEntry(config, width=86, height=36, placeholder_text="8888", fg_color=COLORS["surface_2"], border_color=COLORS["border"])
         self.port_entry.insert(0, "8888")
         self.port_entry.grid(row=0, column=1, padx=4)
+        self.copy_address_button = ctk.CTkButton(config, text="Copy IP", command=self.copy_server_address, width=86, height=36, fg_color=COLORS["surface_3"], hover_color=COLORS["border"], text_color=COLORS["button_text"], text_color_disabled=COLORS["button_disabled_text"])
+        self.copy_address_button.grid(row=0, column=2, padx=4)
 
         self.status_pill = ctk.CTkLabel(header, text="ĐÃ DỪNG", width=112, fg_color=COLORS["surface_3"], text_color=COLORS["warning"], corner_radius=16, padx=14, height=32, font=ctk.CTkFont(size=12, weight="bold"))
         self.status_pill.grid(row=0, column=3, padx=8, sticky="e")
@@ -105,6 +113,27 @@ class ServerApp(ctk.CTk):
         self.start_button.grid(row=0, column=4, padx=(8, 4), sticky="e")
         self.stop_button = ctk.CTkButton(header, text="Dừng", command=self.stop_server, width=104, height=38, fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"], text_color=COLORS["button_text"], text_color_disabled=COLORS["button_disabled_text"], state=ctk.DISABLED)
         self.stop_button.grid(row=0, column=5, padx=(4, 22), sticky="e")
+
+    def get_lan_ip(self):
+        try:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            probe.connect(("8.8.8.8", 80))
+            ip = probe.getsockname()[0]
+            probe.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
+    def refresh_server_address(self):
+        address = f"{self.get_lan_ip()}:{self.port_entry.get().strip() or '8888'}"
+        if hasattr(self, "server_address_label"):
+            self.server_address_label.configure(text=f"Địa chỉ LAN: {address}")
+
+    def copy_server_address(self):
+        address = f"{self.get_lan_ip()}:{self.port_entry.get().strip() or '8888'}"
+        self.clipboard_clear()
+        self.clipboard_append(address)
+        self.log(f"Đã copy địa chỉ máy chủ: {address}", "SUCCESS")
 
     def build_dashboard(self):
         dashboard = ctk.CTkFrame(self, fg_color="transparent")
@@ -128,6 +157,49 @@ class ServerApp(ctk.CTk):
         value_label.grid(row=1, column=0, padx=14, pady=(0, 12), sticky="w")
         return value_label
 
+    def browse_upload_dir(self):
+        folder = filedialog.askdirectory(parent=self, initialdir=self.upload_dir)
+        if not folder:
+            return
+        self.upload_dir = os.path.abspath(folder)
+        self.upload_dir_entry.delete(0, "end")
+        self.upload_dir_entry.insert(0, self.upload_dir)
+        self.save_config()
+        self.log(f"Đã chọn thư mục lưu: {self.upload_dir}", "SUCCESS")
+
+    def save_config(self):
+        config = {
+            "server_ip": self.ip_entry.get().strip(),
+            "server_port": self.port_entry.get().strip(),
+            "upload_dir": self.upload_dir_entry.get().strip() if hasattr(self, "upload_dir_entry") else self.upload_dir,
+        }
+        try:
+            with open(SERVER_CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            self.log(f"Lỗi khi lưu cấu hình máy chủ: {e}", "ERROR")
+
+    def load_config(self):
+        config = {
+            "server_ip": "0.0.0.0",
+            "server_port": "8888",
+            "upload_dir": self.upload_dir,
+        }
+        try:
+            if os.path.exists(SERVER_CONFIG_FILE):
+                with open(SERVER_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    config.update(json.load(f))
+        except Exception as e:
+            self.log(f"Lỗi khi tải cấu hình máy chủ: {e}", "ERROR")
+
+        self.ip_entry.delete(0, "end")
+        self.ip_entry.insert(0, config["server_ip"])
+        self.port_entry.delete(0, "end")
+        self.port_entry.insert(0, config["server_port"])
+        self.upload_dir = os.path.abspath(config["upload_dir"] or "Uploads")
+        self.upload_dir_entry.delete(0, "end")
+        self.upload_dir_entry.insert(0, self.upload_dir)
+
     def build_content(self):
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="nsew")
@@ -141,8 +213,19 @@ class ServerApp(ctk.CTk):
         clients_card.grid_columnconfigure(0, weight=1)
         clients_card.grid_rowconfigure(1, weight=1)
         ctk.CTkLabel(clients_card, text="Thiết bị gửi đang kết nối", font=ctk.CTkFont(size=15, weight="bold"), text_color=COLORS["text"]).grid(row=0, column=0, padx=16, pady=(16, 8), sticky="w")
+        storage = ctk.CTkFrame(clients_card, fg_color=COLORS["surface_2"], corner_radius=14)
+        storage.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
+        storage.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(storage, text="Thư mục lưu tệp", text_color=COLORS["muted"], font=ctk.CTkFont(size=12)).grid(row=0, column=0, columnspan=2, padx=12, pady=(12, 4), sticky="w")
+        self.upload_dir_entry = ctk.CTkEntry(storage, height=34, fg_color=COLORS["surface"], border_color=COLORS["border"])
+        self.upload_dir_entry.grid(row=1, column=0, padx=(12, 6), pady=(0, 12), sticky="ew")
+        self.browse_upload_dir_button = ctk.CTkButton(storage, text="Chọn", command=self.browse_upload_dir, width=72, height=34, fg_color=COLORS["surface_3"], hover_color=COLORS["border"], text_color=COLORS["button_text"], text_color_disabled=COLORS["button_disabled_text"])
+        self.browse_upload_dir_button.grid(row=1, column=1, padx=(6, 12), pady=(0, 12))
+        self.server_address_label = ctk.CTkLabel(storage, text="", text_color=COLORS["subtle"], font=ctk.CTkFont(size=11), anchor="w")
+        self.server_address_label.grid(row=2, column=0, columnspan=2, padx=12, pady=(0, 12), sticky="ew")
+
         self.clients_frame = ctk.CTkScrollableFrame(clients_card, fg_color="transparent")
-        self.clients_frame.grid(row=1, column=0, padx=12, pady=(0, 14), sticky="nsew")
+        self.clients_frame.grid(row=2, column=0, padx=12, pady=(0, 14), sticky="nsew")
         self.clients_frame.grid_columnconfigure(0, weight=1)
         self.empty_clients_label = ctk.CTkLabel(self.clients_frame, text="Chưa có thiết bị gửi kết nối.", text_color=COLORS["subtle"])
         self.empty_clients_label.grid(row=0, column=0, pady=32)
@@ -222,6 +305,9 @@ class ServerApp(ctk.CTk):
 
         port = int(port_text)
         self.running = True
+        self.upload_dir = os.path.abspath(self.upload_dir_entry.get().strip() or "Uploads")
+        os.makedirs(self.upload_dir, exist_ok=True)
+        self.save_config()
 
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -238,7 +324,10 @@ class ServerApp(ctk.CTk):
             self.stop_button.configure(state=ctk.NORMAL)
             self.ip_entry.configure(state=ctk.DISABLED)
             self.port_entry.configure(state=ctk.DISABLED)
+            self.upload_dir_entry.configure(state=ctk.DISABLED)
+            self.browse_upload_dir_button.configure(state=ctk.DISABLED)
             self.log(f"Máy chủ đang lắng nghe tại {ip}:{port}", "SUCCESS")
+            self.refresh_server_address()
             self.update_dashboard()
         except Exception as e:
             self.running = False
@@ -280,6 +369,8 @@ class ServerApp(ctk.CTk):
         self.stop_button.configure(state=ctk.DISABLED)
         self.ip_entry.configure(state=ctk.NORMAL)
         self.port_entry.configure(state=ctk.NORMAL)
+        self.upload_dir_entry.configure(state=ctk.NORMAL)
+        self.browse_upload_dir_button.configure(state=ctk.NORMAL)
         self.log("Máy chủ đã dừng.", "WARN")
         self.update_dashboard()
 
@@ -322,17 +413,27 @@ class ServerApp(ctk.CTk):
             file_name_len = struct.unpack("!I", self.recv_exact(client_socket, 4))[0]
             file_name = self.recv_exact(client_socket, file_name_len).decode(errors="replace")
             file_size = struct.unpack("!Q", self.recv_exact(client_socket, 8))[0]
+            duplicate_policy = self.recv_exact(client_socket, 1).decode(errors="replace") or "R"
 
             safe_target_dir = self.sanitize_subfolder(target_dir)
             safe_file_name = os.path.basename(file_name)
             self.log(f"{transfer_key} đang gửi '{safe_file_name}' ({self.format_bytes(file_size)}) vào '{safe_target_dir or 'Uploads'}'")
 
-            base_upload_dir = "Uploads"
+            base_upload_dir = self.upload_dir
             final_dir = os.path.join(base_upload_dir, safe_target_dir)
             os.makedirs(final_dir, exist_ok=True)
             file_path = os.path.join(final_dir, safe_file_name)
 
             offset = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+            if os.path.exists(file_path) and duplicate_policy == "O":
+                offset = 0
+            elif os.path.exists(file_path) and duplicate_policy == "N":
+                file_path = self.unique_file_path(final_dir, safe_file_name)
+                safe_file_name = os.path.basename(file_path)
+                offset = 0
+            elif os.path.exists(file_path) and duplicate_policy == "S":
+                offset = file_size
+
             remaining_size = max(file_size - offset, 0)
             free_space = shutil.disk_usage(final_dir).free
             if remaining_size > 0 and free_space < remaining_size + MIN_FREE_SPACE_BUFFER:
@@ -355,7 +456,8 @@ class ServerApp(ctk.CTk):
                 self.update_dashboard()
                 return
 
-            with open(file_path, "ab") as f:
+            mode = "wb" if duplicate_policy in ("O", "N") and offset == 0 else "ab"
+            with open(file_path, mode) as f:
                 f.seek(offset)
                 received_bytes = offset
                 last_update_time = time.time()
@@ -543,6 +645,15 @@ class ServerApp(ctk.CTk):
         parts = [part for part in cleaned.split(os.sep) if part and part not in (".", "..")]
         return os.path.join(*parts) if parts else ""
 
+    def unique_file_path(self, folder, file_name):
+        stem, ext = os.path.splitext(file_name)
+        candidate = os.path.join(folder, file_name)
+        counter = 1
+        while os.path.exists(candidate):
+            candidate = os.path.join(folder, f"{stem} ({counter}){ext}")
+            counter += 1
+        return candidate
+
     def get_unblock_ip(self):
         ip = self.ip_entry.get().strip()
         return "127.0.0.1" if ip in ("0.0.0.0", "") else ip
@@ -567,6 +678,7 @@ class ServerApp(ctk.CTk):
         return f"{hours}h {minutes}m"
 
     def on_closing(self):
+        self.save_config()
         self.stop_server()
         self.destroy()
 
