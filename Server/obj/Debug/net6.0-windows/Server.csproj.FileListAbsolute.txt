@@ -1,0 +1,14 @@
+D:\Uploadfilenha\Server\bin\Debug\net6.0-windows\Server.exe
+D:\Uploadfilenha\Server\bin\Debug\net6.0-windows\Server.deps.json
+D:\Uploadfilenha\Server\bin\Debug\net6.0-windows\Server.runtimeconfig.json
+D:\Uploadfilenha\Server\bin\Debug\net6.0-windows\Server.dll
+D:\Uploadfilenha\Server\bin\Debug\net6.0-windows\Server.pdb
+D:\Uploadfilenha\Server\obj\Debug\net6.0-windows\Server.GeneratedMSBuildEditorConfig.editorconfig
+D:\Uploadfilenha\Server\obj\Debug\net6.0-windows\Server.AssemblyInfoInputs.cache
+D:\Uploadfilenha\Server\obj\Debug\net6.0-windows\Server.AssemblyInfo.cs
+D:\Uploadfilenha\Server\obj\Debug\net6.0-windows\Server.csproj.CoreCompileInputs.cache
+D:\Uploadfilenha\Server\obj\Debug\net6.0-windows\Server.dll
+D:\Uploadfilenha\Server\obj\Debug\net6.0-windows\refint\Server.dll
+D:\Uploadfilenha\Server\obj\Debug\net6.0-windows\Server.pdb
+D:\Uploadfilenha\Server\obj\Debug\net6.0-windows\Server.genruntimeconfig.cache
+D:\Uploadfilenha\Server\obj\Debug\net6.0-windows\ref\Server.dll

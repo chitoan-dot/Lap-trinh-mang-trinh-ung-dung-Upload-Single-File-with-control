@@ -1,0 +1,14 @@
+D:\Uploadfilenha\Client\bin\Debug\net6.0-windows\Client.exe
+D:\Uploadfilenha\Client\bin\Debug\net6.0-windows\Client.deps.json
+D:\Uploadfilenha\Client\bin\Debug\net6.0-windows\Client.runtimeconfig.json
+D:\Uploadfilenha\Client\bin\Debug\net6.0-windows\Client.dll
+D:\Uploadfilenha\Client\bin\Debug\net6.0-windows\Client.pdb
+D:\Uploadfilenha\Client\obj\Debug\net6.0-windows\Client.GeneratedMSBuildEditorConfig.editorconfig
+D:\Uploadfilenha\Client\obj\Debug\net6.0-windows\Client.AssemblyInfoInputs.cache
+D:\Uploadfilenha\Client\obj\Debug\net6.0-windows\Client.AssemblyInfo.cs
+D:\Uploadfilenha\Client\obj\Debug\net6.0-windows\Client.csproj.CoreCompileInputs.cache
+D:\Uploadfilenha\Client\obj\Debug\net6.0-windows\Client.dll
+D:\Uploadfilenha\Client\obj\Debug\net6.0-windows\refint\Client.dll
+D:\Uploadfilenha\Client\obj\Debug\net6.0-windows\Client.pdb
+D:\Uploadfilenha\Client\obj\Debug\net6.0-windows\Client.genruntimeconfig.cache
+D:\Uploadfilenha\Client\obj\Debug\net6.0-windows\ref\Client.dll
