@@ -46,6 +46,7 @@ class ServerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
+        # Cấu hình cửa sổ chính và theme cho giao diện server.
         self.title("Máy chủ nhận tệp")
         self.geometry("1180x720")
         self.minsize(1020, 660)
@@ -53,6 +54,7 @@ class ServerApp(ctk.CTk):
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=COLORS["bg"])
 
+        # Các biến trạng thái dùng để quản lý socket, client và thống kê upload.
         self.server_socket = None
         self.listen_thread = None
         self.running = False
@@ -69,6 +71,7 @@ class ServerApp(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
+        # Dựng giao diện và nạp cấu hình đã lưu trước đó.
         self.build_header()
         self.build_dashboard()
         self.build_content()
@@ -81,6 +84,7 @@ class ServerApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def build_header(self):
+        # Vùng tiêu đề trên cùng gồm cấu hình IP/port và nút start/stop server.
         header = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=0, height=74)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_columnconfigure(1, weight=1)
@@ -116,6 +120,7 @@ class ServerApp(ctk.CTk):
         self.stop_button.grid(row=0, column=5, padx=(4, 22), sticky="e")
 
     def get_lan_ip(self):
+        # Lấy địa chỉ LAN để người dùng copy cho client kết nối.
         try:
             probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             probe.connect(("8.8.8.8", 80))
@@ -126,17 +131,20 @@ class ServerApp(ctk.CTk):
             return "127.0.0.1"
 
     def refresh_server_address(self):
+        # Cập nhật nhãn hiển thị địa chỉ server hiện tại.
         address = f"{self.get_lan_ip()}:{self.port_entry.get().strip() or '8888'}"
         if hasattr(self, "server_address_label"):
             self.server_address_label.configure(text=f"Địa chỉ LAN: {address}")
 
     def copy_server_address(self):
+        # Copy địa chỉ LAN:port vào clipboard để dán sang client.
         address = f"{self.get_lan_ip()}:{self.port_entry.get().strip() or '8888'}"
         self.clipboard_clear()
         self.clipboard_append(address)
         self.log(f"Đã copy địa chỉ máy chủ: {address}", "SUCCESS")
 
     def build_dashboard(self):
+        # Dãy card thống kê tổng quan: client, phiên nhận, file, dữ liệu, lỗi, uptime.
         dashboard = ctk.CTkFrame(self, fg_color="transparent")
         dashboard.grid(row=1, column=0, padx=18, pady=(18, 10), sticky="ew")
         for index in range(6):
@@ -150,6 +158,7 @@ class ServerApp(ctk.CTk):
         self.uptime_value = self.create_stat_card(dashboard, 5, "Thời gian", "--")
 
     def create_stat_card(self, parent, column, label, value):
+        # Tạo một card thống kê nhỏ trong dashboard.
         card = ctk.CTkFrame(parent, fg_color=COLORS["surface"], corner_radius=16)
         card.grid(row=0, column=column, padx=5, sticky="ew")
         card.grid_columnconfigure(0, weight=1)
@@ -159,6 +168,7 @@ class ServerApp(ctk.CTk):
         return value_label
 
     def browse_upload_dir(self):
+        # Cho phép người dùng chọn thư mục lưu file nhận được.
         folder = filedialog.askdirectory(parent=self, initialdir=self.upload_dir)
         if not folder:
             return
@@ -169,6 +179,7 @@ class ServerApp(ctk.CTk):
         self.log(f"Đã chọn thư mục lưu: {self.upload_dir}", "SUCCESS")
 
     def save_config(self):
+        # Lưu cấu hình server vào JSON để lần sau mở app dùng lại.
         config = {
             "server_ip": self.ip_entry.get().strip(),
             "server_port": self.port_entry.get().strip(),
@@ -181,6 +192,7 @@ class ServerApp(ctk.CTk):
             self.log(f"Lỗi khi lưu cấu hình máy chủ: {e}", "ERROR")
 
     def load_config(self):
+        # Đọc cấu hình server từ JSON; nếu chưa có thì dùng mặc định.
         config = {
             "server_ip": "0.0.0.0",
             "server_port": "8888",
@@ -202,6 +214,7 @@ class ServerApp(ctk.CTk):
         self.upload_dir_entry.insert(0, self.upload_dir)
 
     def build_content(self):
+        # Bố cục chính gồm danh sách client bên trái và tab phiên nhận/log bên phải.
         content = ctk.CTkFrame(self, fg_color="transparent")
         content.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="nsew")
         content.grid_columnconfigure(0, minsize=290)
@@ -245,6 +258,7 @@ class ServerApp(ctk.CTk):
         self.build_logs_tab()
 
     def build_transfers_tab(self):
+        # Tab hiển thị các phiên upload mà server đang/đã nhận.
         tab = self.tab_view.tab("Phiên nhận")
         tab.grid_columnconfigure(0, weight=1)
         tab.grid_rowconfigure(1, weight=1)
@@ -272,10 +286,12 @@ class ServerApp(ctk.CTk):
         self.empty_transfers_label.grid(row=0, column=0, pady=32)
 
     def configure_transfer_columns(self, container):
+        # Dùng chung cấu hình cột để header và từng dòng phiên nhận thẳng hàng.
         for index, options in enumerate(TRANSFER_COLUMNS):
             container.grid_columnconfigure(index, weight=options["weight"], minsize=options["minsize"])
 
     def build_logs_tab(self):
+        # Tab nhật ký giúp theo dõi sự kiện kết nối, nhận file và lỗi.
         tab = self.tab_view.tab("Nhật ký")
         tab.grid_columnconfigure(0, weight=1)
         tab.grid_rowconfigure(1, weight=1)
@@ -298,6 +314,7 @@ class ServerApp(ctk.CTk):
             pass
 
     def start_server(self):
+        # Kiểm tra cấu hình và khởi động socket lắng nghe client.
         ip = self.ip_entry.get().strip()
         port_text = self.port_entry.get().strip()
         if not port_text.isdigit():
@@ -311,6 +328,7 @@ class ServerApp(ctk.CTk):
         self.save_config()
 
         try:
+            # Tạo socket TCP, bind vào IP/port và bắt đầu listen.
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.server_socket.bind((ip, port))
@@ -337,10 +355,12 @@ class ServerApp(ctk.CTk):
             self.status_pill.configure(text="LỖI", fg_color=COLORS["danger"], text_color="white")
 
     def stop_server(self):
+        # Dừng server, đóng tất cả kết nối client và mở lại các ô cấu hình.
         if not self.running and not self.server_socket:
             return
 
         self.running = False
+        # Đóng các socket client đang còn kết nối.
         for addr, client_socket in list(self.clients.items()):
             try:
                 client_socket.close()
@@ -353,6 +373,7 @@ class ServerApp(ctk.CTk):
 
         if self.server_socket:
             try:
+                # Tạo kết nối giả để thoát khỏi accept() đang bị chặn.
                 dummy_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 dummy_socket.settimeout(1)
                 dummy_socket.connect((self.get_unblock_ip(), int(self.port_entry.get())))
@@ -376,6 +397,7 @@ class ServerApp(ctk.CTk):
         self.update_dashboard()
 
     def listen_for_clients(self):
+        # Vòng lặp nền chờ client kết nối tới server.
         while self.running:
             try:
                 client_socket, addr = self.server_socket.accept()
@@ -391,6 +413,7 @@ class ServerApp(ctk.CTk):
                 self.refresh_clients_panel()
                 self.update_dashboard()
 
+                # Mỗi client được xử lý trên một thread riêng để nhận song song.
                 client_handler = threading.Thread(target=self.handle_client, args=(client_socket, addr), daemon=True)
                 client_handler.start()
             except OSError:
@@ -399,8 +422,10 @@ class ServerApp(ctk.CTk):
                 break
 
     def handle_client(self, client_socket, addr):
+        # Xử lý toàn bộ một phiên nhận file từ một client.
         transfer_key = self.format_addr(addr)
         try:
+            # Đọc mã lệnh đầu tiên để biết client muốn upload file.
             command_byte = self.recv_exact(client_socket, 1)
             command = command_byte.decode(errors="replace")
 
@@ -408,6 +433,7 @@ class ServerApp(ctk.CTk):
                 self.log(f"Lệnh không xác định '{command}' từ {transfer_key}", "WARN")
                 return
 
+            # Đọc header: thư mục đích, tên file, kích thước và duplicate policy.
             dir_name_len = struct.unpack("!I", self.recv_exact(client_socket, 4))[0]
             target_dir = self.recv_exact(client_socket, dir_name_len).decode(errors="replace") if dir_name_len > 0 else ""
 
@@ -416,6 +442,7 @@ class ServerApp(ctk.CTk):
             file_size = struct.unpack("!Q", self.recv_exact(client_socket, 8))[0]
             duplicate_policy = self.recv_exact(client_socket, 1).decode(errors="replace") or "R"
 
+            # Làm sạch đường dẫn để chỉ lưu file trong thư mục upload của server.
             safe_target_dir = self.sanitize_subfolder(target_dir)
             safe_file_name = os.path.basename(file_name)
             self.log(f"{transfer_key} đang gửi '{safe_file_name}' ({self.format_bytes(file_size)}) vào '{safe_target_dir or 'Uploads'}'")
@@ -425,6 +452,7 @@ class ServerApp(ctk.CTk):
             os.makedirs(final_dir, exist_ok=True)
             file_path = os.path.join(final_dir, safe_file_name)
 
+            # Tính offset resume và áp dụng cách xử lý khi file đã tồn tại.
             offset = os.path.getsize(file_path) if os.path.exists(file_path) else 0
             if os.path.exists(file_path) and duplicate_policy == "O":
                 offset = 0
@@ -435,6 +463,7 @@ class ServerApp(ctk.CTk):
             elif os.path.exists(file_path) and duplicate_policy == "S":
                 offset = file_size
 
+            # Kiểm tra dung lượng trống trước khi báo client bắt đầu gửi file.
             remaining_size = max(file_size - offset, 0)
             free_space = shutil.disk_usage(final_dir).free
             if remaining_size > 0 and free_space < remaining_size + MIN_FREE_SPACE_BUFFER:
@@ -447,6 +476,7 @@ class ServerApp(ctk.CTk):
                 self.update_dashboard()
                 return
 
+            # Gửi offset cho client: 0 là gửi mới, >0 là resume, >= size là bỏ qua.
             client_socket.sendall(struct.pack("!Q", offset))
 
             self.create_transfer_row(transfer_key, safe_file_name, file_size)
@@ -457,6 +487,7 @@ class ServerApp(ctk.CTk):
                 self.update_dashboard()
                 return
 
+            # Mở file để ghi mới hoặc ghi tiếp từ offset đã có.
             mode = "wb" if duplicate_policy in ("O", "N") and offset == 0 else "ab"
             with open(file_path, mode) as f:
                 f.seek(offset)
@@ -465,6 +496,7 @@ class ServerApp(ctk.CTk):
                 last_sample_bytes = received_bytes
 
                 while received_bytes < file_size:
+                    # Nhận dữ liệu theo chunk để hỗ trợ file lớn.
                     data = client_socket.recv(65536)
                     if not data:
                         raise ConnectionAbruptlyClosed("Thiết bị gửi đã đóng kết nối khi đang gửi tệp.")
@@ -473,6 +505,7 @@ class ServerApp(ctk.CTk):
                     received_bytes += len(data)
                     self.total_bytes += len(data)
 
+                    # Cập nhật tốc độ và tiến trình định kỳ để UI không bị quá tải.
                     now = time.time()
                     elapsed = now - last_update_time
                     if elapsed >= 0.35 or received_bytes == file_size:
@@ -517,6 +550,7 @@ class ServerApp(ctk.CTk):
             self.update_dashboard()
 
     def create_transfer_row(self, key, file_name, file_size):
+        # Tạo dòng hiển thị một phiên nhận file trong tab Phiên nhận.
         def _create():
             if self.empty_transfers_label.winfo_exists():
                 self.empty_transfers_label.grid_forget()
@@ -554,6 +588,7 @@ class ServerApp(ctk.CTk):
         self.after(0, _create)
 
     def update_transfer_row(self, key, progress=None, speed=None, state=None, color=None):
+        # Cập nhật tiến trình/tốc độ/trạng thái của một phiên nhận từ thread nền.
         if state is not None:
             self.transfer_states[key] = state
 
@@ -571,6 +606,7 @@ class ServerApp(ctk.CTk):
         self.after(0, _update)
 
     def refresh_clients_panel(self):
+        # Vẽ lại danh sách client đang kết nối ở panel bên trái.
         def _refresh():
             for row in self.client_rows.values():
                 row.destroy()
@@ -592,6 +628,7 @@ class ServerApp(ctk.CTk):
         self.after(0, _refresh)
 
     def update_dashboard(self):
+        # Cập nhật các số liệu tổng quan trên dashboard.
         active_transfers = sum(1 for state in self.transfer_states.values() if state == "Đang nhận")
         self.after(0, lambda: self.active_clients_value.configure(text=str(len(self.clients))))
         self.after(0, lambda: self.active_transfers_value.configure(text=str(active_transfers)))
@@ -600,6 +637,7 @@ class ServerApp(ctk.CTk):
         self.after(0, lambda: self.failed_value.configure(text=str(self.failed_uploads)))
 
     def update_uptime(self):
+        # Cập nhật thời gian server đã chạy mỗi giây.
         if self.started_at and self.running:
             uptime = int(time.time() - self.started_at)
             self.uptime_value.configure(text=self.format_duration(uptime))
@@ -608,6 +646,7 @@ class ServerApp(ctk.CTk):
         self.after(1000, self.update_uptime)
 
     def log(self, message, level="INFO"):
+        # Ghi một dòng log vào textbox nhật ký, kèm thời gian và mức log.
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_message = f"{timestamp} {level:<7} {message}\n"
 
@@ -623,12 +662,14 @@ class ServerApp(ctk.CTk):
         self.after(0, _insert)
 
     def clear_logs(self):
+        # Xóa toàn bộ nội dung log trên giao diện.
         self.log_area.configure(state="normal")
         self.log_area.delete("1.0", "end")
         self.log_area.configure(state="disabled")
         self.log("Đã xóa nhật ký.")
 
     def recv_exact(self, sock, size):
+        # Đọc đúng số byte từ socket; nếu client đóng sớm thì báo lỗi riêng.
         chunks = []
         received = 0
         while received < size:
@@ -640,6 +681,7 @@ class ServerApp(ctk.CTk):
         return b"".join(chunks)
 
     def sanitize_subfolder(self, target_dir):
+        # Loại bỏ thành phần đường dẫn nguy hiểm như "." và "..".
         cleaned = os.path.normpath(target_dir.strip()).replace("\\", os.sep).replace("/", os.sep)
         if cleaned in ("", "."):
             return ""
@@ -647,6 +689,7 @@ class ServerApp(ctk.CTk):
         return os.path.join(*parts) if parts else ""
 
     def unique_file_path(self, folder, file_name):
+        # Tạo tên file không trùng khi policy là đổi tên tự động.
         stem, ext = os.path.splitext(file_name)
         candidate = os.path.join(folder, file_name)
         counter = 1
@@ -656,13 +699,16 @@ class ServerApp(ctk.CTk):
         return candidate
 
     def get_unblock_ip(self):
+        # Nếu server bind 0.0.0.0 thì dùng 127.0.0.1 để tự kết nối mở khóa accept().
         ip = self.ip_entry.get().strip()
         return "127.0.0.1" if ip in ("0.0.0.0", "") else ip
 
     def format_addr(self, addr):
+        # Chuẩn hóa tuple địa chỉ socket thành chuỗi IP:port.
         return f"{addr[0]}:{addr[1]}"
 
     def format_bytes(self, value):
+        # Định dạng dung lượng byte thành chuỗi dễ đọc.
         value = float(value)
         for unit in ("B", "KB", "MB", "GB", "TB"):
             if value < 1024 or unit == "TB":
@@ -670,6 +716,7 @@ class ServerApp(ctk.CTk):
             value /= 1024
 
     def format_duration(self, seconds):
+        # Định dạng số giây thành chuỗi ngắn cho uptime.
         if seconds < 60:
             return f"{seconds}s"
         minutes, seconds = divmod(seconds, 60)
@@ -679,12 +726,14 @@ class ServerApp(ctk.CTk):
         return f"{hours}h {minutes}m"
 
     def on_closing(self):
+        # Khi đóng cửa sổ, lưu cấu hình và dừng server trước khi thoát.
         self.save_config()
         self.stop_server()
         self.destroy()
 
 
 class ConnectionAbruptlyClosed(Exception):
+    # Lỗi riêng để phân biệt client đóng kết nối giữa chừng với lỗi khác.
     pass
 
 

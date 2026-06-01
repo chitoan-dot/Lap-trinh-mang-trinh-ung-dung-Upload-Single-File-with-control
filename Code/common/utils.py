@@ -3,6 +3,7 @@ import socket
 
 
 def format_bytes(value):
+    # Chuyển số byte thành chuỗi dễ đọc như KB, MB, GB.
     value = float(value)
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if value < 1024 or unit == "TB":
@@ -11,6 +12,7 @@ def format_bytes(value):
 
 
 def format_duration(seconds):
+    # Chuyển số giây thành định dạng ngắn để hiển thị ETA.
     if seconds is None:
         return "--"
     seconds = int(seconds)
@@ -24,6 +26,7 @@ def format_duration(seconds):
 
 
 def recv_exact(sock, size):
+    # Đọc đúng số byte yêu cầu từ socket, vì recv có thể trả về ít hơn size.
     chunks = []
     received = 0
     while received < size:
@@ -36,6 +39,7 @@ def recv_exact(sock, size):
 
 
 def sanitize_subfolder(folder_name):
+    # Làm sạch tên thư mục con để tránh đường dẫn nguy hiểm như ../.
     folder_name = (folder_name or "").strip().replace("\\", "/")
     parts = []
     for part in folder_name.split("/"):
@@ -46,6 +50,7 @@ def sanitize_subfolder(folder_name):
 
 
 def unique_file_path(folder, file_name):
+    # Tạo tên file mới nếu file đã tồn tại: file (1).txt, file (2).txt...
     stem, ext = os.path.splitext(file_name)
     candidate = os.path.join(folder, file_name)
     counter = 1
@@ -56,6 +61,7 @@ def unique_file_path(folder, file_name):
 
 
 def get_lan_ip():
+    # Lấy IP LAN hiện tại để người dùng dễ cấu hình client kết nối tới server.
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         probe.connect(("8.8.8.8", 80))

@@ -65,6 +65,7 @@ class ClientApp(ClientBase):
     def __init__(self):
         super().__init__()
 
+        # Cấu hình cửa sổ chính và theme cho giao diện client.
         self.title("Trình gửi tệp")
         self.geometry("1120x700")
         self.minsize(980, 640)
@@ -72,6 +73,7 @@ class ClientApp(ClientBase):
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=COLORS["bg"])
 
+        # Các biến trạng thái dùng để quản lý hàng đợi và phiên upload hiện tại.
         self.file_paths = []
         self.upload_rows = {}
         self.file_states = {}
@@ -85,6 +87,7 @@ class ClientApp(ClientBase):
         self.queue_total_bytes = 0
         self.queue_done_bytes = 0
 
+        # Nạp icon cho các nút điều khiển, nếu thiếu file ảnh thì tự vẽ icon đơn giản.
         self.icons = {
             "start": self.make_icon("start"),
             "pause": self.make_icon("pause"),
@@ -96,6 +99,7 @@ class ClientApp(ClientBase):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
+        # Dựng các vùng giao diện chính.
         self.build_header()
         self.build_shell()
         self.build_toast()
@@ -106,6 +110,7 @@ class ClientApp(ClientBase):
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def get_asset_path(self, asset_name):
+        # Tìm đường dẫn asset, hỗ trợ cả khi đóng gói bằng PyInstaller.
         try:
             base_path = sys._MEIPASS
         except Exception:
@@ -113,6 +118,7 @@ class ClientApp(ClientBase):
         return os.path.join(base_path, "assets", asset_name)
 
     def make_icon(self, name):
+        # Ưu tiên đọc icon PNG có sẵn; nếu không có thì vẽ icon bằng Pillow.
         path = self.get_asset_path(f"{name}.png")
         try:
             image = Image.open(path).convert("RGBA")
@@ -139,6 +145,7 @@ class ClientApp(ClientBase):
         return ctk.CTkImage(image, size=(18, 18))
 
     def build_header(self):
+        # Vùng tiêu đề trên cùng hiển thị tên app và trạng thái kết nối.
         header = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=0, height=68)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_columnconfigure(1, weight=1)
@@ -168,6 +175,7 @@ class ClientApp(ClientBase):
         self.connection_pill.grid(row=0, column=2, padx=22, pady=18, sticky="e")
 
     def build_shell(self):
+        # Bố cục chính gồm sidebar cấu hình và khu vực bảng tiến trình.
         shell = ctk.CTkFrame(self, fg_color="transparent")
         shell.grid(row=1, column=0, padx=18, pady=18, sticky="nsew")
         shell.grid_columnconfigure(0, minsize=292)
@@ -198,6 +206,7 @@ class ClientApp(ClientBase):
         self.build_controls()
 
     def build_sidebar(self):
+        # Sidebar hiển thị thống kê nhanh và cấu hình server đích.
         ctk.CTkLabel(self.sidebar, text="Tổng quan", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLORS["text"]).grid(row=0, column=0, padx=18, pady=(20, 12), sticky="w")
 
         self.speed_value = self.create_stat_card(self.sidebar, 1, "Tốc độ gửi", "0.00 MB/s")
@@ -244,6 +253,7 @@ class ClientApp(ClientBase):
         self.save_settings_button.grid(row=5, column=0, padx=14, pady=(10, 14), sticky="ew")
 
     def create_stat_card(self, parent, row, label, value):
+        # Tạo một ô thống kê nhỏ trong sidebar.
         card = ctk.CTkFrame(parent, fg_color=COLORS["surface_2"], corner_radius=14)
         card.grid(row=row, column=0, padx=14, pady=6, sticky="ew")
         card.grid_columnconfigure(0, weight=1)
@@ -253,6 +263,7 @@ class ClientApp(ClientBase):
         return value_label
 
     def build_upload_card(self):
+        # Khu vực chọn file hoặc kéo thả file vào hàng đợi.
         card = ctk.CTkFrame(self.main, fg_color=COLORS["surface"], corner_radius=16)
         card.grid(row=0, column=0, padx=(0, 12), sticky="nsew")
         card.grid_columnconfigure(0, weight=1)
@@ -283,6 +294,7 @@ class ClientApp(ClientBase):
         self.browse_button = browse
 
     def build_progress_card(self):
+        # Khu vực hiển thị tiến trình của file hiện tại và toàn bộ hàng đợi.
         card = ctk.CTkFrame(self.main, fg_color=COLORS["surface"], corner_radius=16)
         card.grid(row=0, column=1, sticky="nsew")
         card.grid_columnconfigure(0, weight=1)
@@ -316,6 +328,7 @@ class ClientApp(ClientBase):
         self.total_progress_label.grid(row=4, column=0, padx=16, pady=(0, 10), sticky="ew")
 
     def build_queue_table(self):
+        # Bảng hàng đợi hiển thị từng file, dung lượng, tiến trình, ETA và trạng thái.
         table = ctk.CTkFrame(self.main, fg_color=COLORS["surface"], corner_radius=16)
         self.queue_table = table
         table.grid(row=1, column=0, columnspan=2, pady=(12, 0), sticky="nsew")
@@ -356,10 +369,12 @@ class ClientApp(ClientBase):
         self.empty_queue.grid(row=0, column=0, pady=30)
 
     def configure_queue_columns(self, container):
+        # Dùng chung cấu hình cột để header và từng dòng file thẳng hàng nhau.
         for index, options in enumerate(QUEUE_COLUMNS):
             container.grid_columnconfigure(index, weight=options["weight"], minsize=options["minsize"])
 
     def build_controls(self):
+        # Thanh điều khiển dưới cùng: bắt đầu, tạm dừng/tiếp tục và dừng.
         controls = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=0, height=70)
         controls.grid(row=2, column=0, sticky="ew")
         controls.grid_columnconfigure(0, weight=1)
@@ -380,6 +395,7 @@ class ClientApp(ClientBase):
         self.stop_button.grid(row=0, column=2, padx=5)
 
     def build_toast(self):
+        # Toast là thông báo nhỏ hiện tạm thời ở góc giao diện.
         self.toast = ctk.CTkLabel(
             self,
             text="",
@@ -391,6 +407,7 @@ class ClientApp(ClientBase):
         )
 
     def enable_drag_and_drop(self):
+        # Bật kéo thả file nếu thư viện tkinterdnd2 khả dụng.
         if not DND_AVAILABLE:
             return
         try:
@@ -401,10 +418,12 @@ class ClientApp(ClientBase):
             pass
 
     def handle_drop(self, event):
+        # Nhận danh sách file được thả vào cửa sổ và thêm vào hàng đợi.
         files = self.tk.splitlist(event.data)
         self.add_files(files)
 
     def show_toast(self, message, kind="info"):
+        # Hiển thị thông báo nhanh với màu theo loại: success, warning, error, info.
         color = {
             "info": COLORS["surface_3"],
             "success": COLORS["success"],
@@ -420,11 +439,13 @@ class ClientApp(ClientBase):
         self.after(0, _show)
 
     def browse_files(self):
+        # Mở hộp thoại chọn một hoặc nhiều file từ máy người dùng.
         files = filedialog.askopenfilenames(parent=self)
         if files:
             self.add_files(files)
 
     def add_files(self, files):
+        # Thêm file hợp lệ vào hàng đợi, bỏ qua file trùng hoặc không tồn tại.
         added = 0
         duplicates = 0
         for path in files:
@@ -447,6 +468,7 @@ class ClientApp(ClientBase):
             self.show_toast(message, "warning")
 
     def add_queue_row(self, path):
+        # Tạo một dòng giao diện tương ứng với file vừa được thêm vào hàng đợi.
         if self.empty_queue.winfo_exists():
             self.empty_queue.grid_forget()
 
@@ -482,6 +504,7 @@ class ClientApp(ClientBase):
         self.file_states[path] = "Đang chờ"
 
     def clear_completed(self):
+        # Xóa khỏi bảng các file đã hoàn tất, lỗi hoặc đã bỏ qua.
         for path, widgets in list(self.upload_rows.items()):
             state = self.file_states.get(path, widgets["state"].cget("text"))
             if state in ("Hoàn tất", "Lỗi", "Đã bỏ qua"):
@@ -495,6 +518,7 @@ class ClientApp(ClientBase):
         self.status_label.configure(text="Đã xóa các mục hoàn tất.")
 
     def retry_failed(self):
+        # Đưa các file lỗi/dừng về trạng thái chờ để gửi lại.
         if self.upload_state != "stopped":
             return
         retry_paths = [path for path in self.file_paths if self.file_states.get(path) in ("Lỗi", "Đã dừng")]
@@ -507,6 +531,7 @@ class ClientApp(ClientBase):
         self.start_upload()
 
     def update_row(self, path, progress=None, eta=None, state=None, state_color=None):
+        # Cập nhật một dòng trong bảng hàng đợi từ thread upload thông qua after().
         if path not in self.upload_rows:
             return
         if state is not None:
@@ -526,6 +551,7 @@ class ClientApp(ClientBase):
         self.after(0, _update)
 
     def reset_progress(self):
+        # Đưa các thanh tiến trình và nhãn thống kê về trạng thái ban đầu.
         self.progress_bar.set(0)
         self.progress_label.configure(text="0.00% | 0 B / 0 B")
         self.speed_label.configure(text="Tốc độ: 0.00 MB/s")
@@ -537,6 +563,7 @@ class ClientApp(ClientBase):
         self.total_progress_label.configure(text="Tổng: 0.00% | 0 B / 0 B")
 
     def update_ui_state(self):
+        # Bật/tắt các nút dựa trên trạng thái hiện tại của phiên upload.
         has_files = bool(self.file_paths)
         if self.upload_state == "stopped":
             self.start_button.configure(state=ctk.NORMAL if has_files else ctk.DISABLED)
@@ -564,6 +591,7 @@ class ClientApp(ClientBase):
             self.state_chip.configure(text="TẠM DỪNG", fg_color=COLORS["warning"], text_color=COLORS["bg"])
 
     def start_upload(self):
+        # Kiểm tra dữ liệu nhập và tạo thread nền để không làm treo giao diện.
         if not self.file_paths:
             messagebox.showerror("Chưa có tệp", "Vui lòng thêm ít nhất một tệp.", parent=self)
             return
@@ -579,6 +607,7 @@ class ClientApp(ClientBase):
         self.upload_thread.start()
 
     def pause_resume_upload(self):
+        # Chuyển qua lại giữa trạng thái đang gửi và tạm dừng.
         if self.upload_state == "uploading":
             self.upload_state = "paused"
             self.status_label.configure(text="Đã tạm dừng gửi tệp.")
@@ -590,6 +619,7 @@ class ClientApp(ClientBase):
         self.update_ui_state()
 
     def stop_upload(self):
+        # Dừng phiên gửi hiện tại và đóng socket để server ngừng nhận file.
         if self.upload_state in ("uploading", "paused"):
             self.upload_state = "stopped"
             if self.client_socket:
@@ -602,11 +632,13 @@ class ClientApp(ClientBase):
             self.update_ui_state()
 
     def on_closing(self):
+        # Khi đóng cửa sổ, dừng upload và lưu lại cấu hình hiện tại.
         self.stop_upload()
         self.save_config(silent=True)
         self.destroy()
 
     def save_config(self, silent=False):
+        # Lưu cấu hình client vào file JSON để lần sau mở app dùng lại.
         config = {
             "server_ip": self.ip_entry.get(),
             "server_port": self.port_entry.get(),
@@ -623,6 +655,7 @@ class ClientApp(ClientBase):
             self.status_label.configure(text=f"Lỗi khi lưu cài đặt: {e}")
 
     def load_config(self):
+        # Đọc cấu hình client từ JSON; nếu chưa có thì dùng giá trị mặc định.
         defaults = {"server_ip": "127.0.0.1", "server_port": "8888", "server_folder": "", "duplicate_policy": "Tiếp tục nếu còn thiếu"}
         try:
             if os.path.exists(CONFIG_FILE):
@@ -637,12 +670,14 @@ class ClientApp(ClientBase):
         self.duplicate_policy_menu.set(defaults.get("duplicate_policy", "Tiếp tục nếu còn thiếu"))
 
     def upload_queue_thread(self):
+        # Thread nền duyệt lần lượt các file chưa hoàn tất trong hàng đợi.
         pending_paths = [path for path in self.file_paths if self.file_states.get(path) not in ("Hoàn tất", "Đã bỏ qua")]
         self.queue_total_bytes = sum(os.path.getsize(path) for path in pending_paths if os.path.exists(path))
         self.queue_done_bytes = 0
         self.update_total_progress(0)
 
         for path in pending_paths:
+            # Nếu người dùng bấm Stop thì dừng duyệt hàng đợi.
             if self.upload_state == "stopped":
                 break
             current_state = self.file_states.get(path)
@@ -658,6 +693,7 @@ class ClientApp(ClientBase):
             self.show_toast("Đã gửi xong hàng đợi", "success")
 
     def update_total_progress(self, current_file_bytes=0):
+        # Cập nhật thanh tiến trình tổng bằng số byte đã xong cộng với file đang gửi.
         total_done = min(self.queue_done_bytes + current_file_bytes, self.queue_total_bytes)
         progress = total_done / self.queue_total_bytes if self.queue_total_bytes else 0
         text = f"Tổng: {progress:.2%} | {self.format_bytes(total_done)} / {self.format_bytes(self.queue_total_bytes)}"
@@ -665,6 +701,7 @@ class ClientApp(ClientBase):
         self.after(0, lambda value=text: self.total_progress_label.configure(text=value))
 
     def upload_single_file(self, file_path):
+        # Gửi một file duy nhất tới server theo cấu hình hiện tại.
         server_ip = self.ip_entry.get()
         server_port = int(self.port_entry.get())
         file_name = os.path.basename(file_path)
@@ -676,6 +713,7 @@ class ClientApp(ClientBase):
         self.update_row(file_path, state="Đang kết nối", state_color=COLORS["warning"])
 
         try:
+            # Mở kết nối TCP tới server.
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client_socket.connect((server_ip, server_port))
             self.after(0, lambda: self.status_label.configure(text=f"Đang gửi {file_name} tới {server_ip}:{server_port}"))
@@ -683,6 +721,7 @@ class ClientApp(ClientBase):
 
             self.client_socket.sendall(b"U")
 
+            # Gửi header gồm thư mục đích, tên file, kích thước và duplicate policy.
             dir_name_bytes = target_dir.encode()
             self.client_socket.sendall(struct.pack("!I", len(dir_name_bytes)))
             self.client_socket.sendall(dir_name_bytes)
@@ -693,6 +732,7 @@ class ClientApp(ClientBase):
             self.client_socket.sendall(struct.pack("!Q", file_size))
             self.client_socket.sendall(duplicate_policy.encode())
 
+            # Server trả offset để client biết gửi từ đầu, gửi tiếp, hoặc bỏ qua.
             offset_data = self.recv_exact(self.client_socket, 8)
             offset = struct.unpack("!Q", offset_data)[0]
             if offset == SERVER_ERROR_OFFSET:
@@ -706,6 +746,7 @@ class ClientApp(ClientBase):
                 self.refresh_stats()
                 return
 
+            # Mở file local và gửi dữ liệu từ offset đã nhận.
             with open(file_path, "rb") as f:
                 f.seek(offset)
                 sent_bytes = offset
@@ -714,6 +755,7 @@ class ClientApp(ClientBase):
                 speed_mb = 0.0
 
                 while sent_bytes < file_size and self.upload_state != "stopped":
+                    # Khi tạm dừng, giữ kết nối nhưng chưa đọc/gửi chunk tiếp theo.
                     while self.upload_state == "paused":
                         self.update_row(file_path, state="Tạm dừng", state_color=COLORS["warning"])
                         time.sleep(0.1)
@@ -728,10 +770,12 @@ class ClientApp(ClientBase):
                     if not data:
                         break
 
+                    # Gửi chunk dữ liệu qua socket.
                     self.client_socket.sendall(data)
                     sent_bytes += len(data)
                     self.total_uploaded_bytes += len(data)
 
+                    # Giới hạn tần suất cập nhật UI để giao diện không bị quá tải.
                     now = time.time()
                     elapsed = now - last_update_time
                     if elapsed >= 0.35 or sent_bytes == file_size:
@@ -767,12 +811,14 @@ class ClientApp(ClientBase):
                 self.show_toast(f"Đã gửi xong {file_name}", "success")
 
         except (ConnectionRefusedError, socket.gaierror):
+            # Trường hợp không kết nối được tới server hoặc sai địa chỉ.
             self.failed_count += 1
             self.update_row(file_path, state="Lỗi", state_color=COLORS["danger"])
             self.show_toast("Kết nối thất bại", "error")
             self.after(0, lambda: messagebox.showerror("Lỗi kết nối", f"Không thể kết nối tới {server_ip}:{server_port}.", parent=self))
             self.upload_state = "stopped"
         except Exception as e:
+            # Các lỗi còn lại khi gửi file: mất kết nối, lỗi đọc file, lỗi protocol...
             if self.upload_state != "stopped":
                 self.failed_count += 1
                 self.update_row(file_path, state="Lỗi", state_color=COLORS["danger"])
@@ -780,6 +826,7 @@ class ClientApp(ClientBase):
                 self.after(0, lambda err=e: messagebox.showerror("Lỗi gửi tệp", f"Đã xảy ra lỗi: {err}", parent=self))
                 self.upload_state = "stopped"
         finally:
+            # Luôn đóng socket sau khi xử lý xong file để tránh rò rỉ kết nối.
             if self.client_socket:
                 try:
                     self.client_socket.close()
@@ -791,6 +838,7 @@ class ClientApp(ClientBase):
                 self.after(0, self.update_ui_state)
 
     def recv_exact(self, sock, size):
+        # Đọc đúng số byte từ server, dùng khi nhận offset hoặc dữ liệu protocol.
         chunks = []
         received = 0
         while received < size:
@@ -802,12 +850,14 @@ class ClientApp(ClientBase):
         return b"".join(chunks)
 
     def refresh_stats(self):
+        # Đếm lại số file hoàn tất và lỗi để cập nhật sidebar.
         done = sum(1 for state in self.file_states.values() if state in ("Hoàn tất", "Đã bỏ qua"))
         failed = sum(1 for state in self.file_states.values() if state == "Lỗi")
         self.after(0, lambda: self.done_value.configure(text=f"{done} tệp"))
         self.after(0, lambda: self.failed_value.configure(text=f"{failed} tệp"))
 
     def format_bytes(self, value):
+        # Định dạng dung lượng byte thành chuỗi dễ đọc.
         value = float(value)
         for unit in ("B", "KB", "MB", "GB", "TB"):
             if value < 1024 or unit == "TB":
@@ -815,6 +865,7 @@ class ClientApp(ClientBase):
             value /= 1024
 
     def format_duration(self, seconds):
+        # Định dạng thời gian còn lại cho cột ETA.
         if seconds is None:
             return "--"
         if seconds < 60:
