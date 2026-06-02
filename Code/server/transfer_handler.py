@@ -1,6 +1,7 @@
 
 import os
 import shutil
+import hashlib
 from common.constants import CHUNK_SIZE, MIN_FREE_SPACE_BUFFER, SERVER_ERROR_OFFSET
 from common.protocol import receive_upload_header, send_offset
 from common.utils import sanitize_subfolder, unique_file_path
@@ -31,6 +32,9 @@ class TransferHandler:
             offset = 0
         elif os.path.exists(file_path) and header.duplicate_policy == "S":
             offset = header.file_size
+        elif os.path.exists(file_path) and offset >= header.file_size:
+            if self.calculate_file_hash(file_path) != header.file_hash:
+                offset = 0
 
         # Kiểm tra dung lượng trống trước khi cho client bắt đầu gửi dữ liệu.
         remaining = max(header.file_size - offset, 0)
@@ -39,6 +43,16 @@ class TransferHandler:
             raise RuntimeError("Máy chủ không đủ dung lượng lưu trữ.")
         send_offset(sock, offset)
         return header, file_path, offset
+
+    def calculate_file_hash(self, file_path):
+        digest = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.digest()
 
     def receive_file(self, sock, file_path, file_size, offset=0, on_chunk=None):
         # Ghi tiếp nếu đang resume, hoặc ghi mới nếu offset bằng 0.

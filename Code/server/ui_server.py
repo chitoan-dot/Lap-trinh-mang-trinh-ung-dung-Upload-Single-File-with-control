@@ -7,6 +7,7 @@ import shutil
 import struct
 import time
 import json
+import hashlib
 from datetime import datetime
 
 COLORS = {
@@ -29,6 +30,9 @@ COLORS = {
 }
 
 SERVER_ERROR_OFFSET = (1 << 64) - 1
+SERVER_VERIFY_OK = b"V"
+SERVER_VERIFY_SKIPPED = b"S"
+SERVER_VERIFY_FAILED = b"M"
 MIN_FREE_SPACE_BUFFER = 5 * 1024 * 1024
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SERVER_CONFIG_FILE = os.path.join(BASE_DIR, "config", "server_config.json")
@@ -36,9 +40,10 @@ SERVER_CONFIG_FILE = os.path.join(BASE_DIR, "config", "server_config.json")
 TRANSFER_COLUMNS = (
     {"weight": 1, "minsize": 260},
     {"weight": 0, "minsize": 170},
-    {"weight": 0, "minsize": 300},
-    {"weight": 0, "minsize": 120},
-    {"weight": 0, "minsize": 150},
+    {"weight": 0, "minsize": 260},
+    {"weight": 0, "minsize": 110},
+    {"weight": 0, "minsize": 135},
+    {"weight": 0, "minsize": 90},
 )
 
 
@@ -180,10 +185,18 @@ class ServerApp(ctk.CTk):
 
     def save_config(self):
         # Lưu cấu hình server vào JSON để lần sau mở app dùng lại.
+        upload_dir_value = self.upload_dir_entry.get().strip() if hasattr(self, "upload_dir_entry") else self.upload_dir
+        upload_dir_value = os.path.abspath(upload_dir_value or os.path.join(BASE_DIR, "Uploads"))
+        try:
+            relative_upload_dir = os.path.relpath(upload_dir_value, BASE_DIR)
+            if not relative_upload_dir.startswith(".."):
+                upload_dir_value = relative_upload_dir
+        except Exception:
+            pass
         config = {
             "server_ip": self.ip_entry.get().strip(),
             "server_port": self.port_entry.get().strip(),
-            "upload_dir": self.upload_dir_entry.get().strip() if hasattr(self, "upload_dir_entry") else self.upload_dir,
+            "upload_dir": upload_dir_value,
         }
         try:
             with open(SERVER_CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -196,7 +209,7 @@ class ServerApp(ctk.CTk):
         config = {
             "server_ip": "0.0.0.0",
             "server_port": "8888",
-            "upload_dir": self.upload_dir,
+            "upload_dir": os.path.join(BASE_DIR, "Uploads"),
         }
         try:
             if os.path.exists(SERVER_CONFIG_FILE):
@@ -209,7 +222,10 @@ class ServerApp(ctk.CTk):
         self.ip_entry.insert(0, config["server_ip"])
         self.port_entry.delete(0, "end")
         self.port_entry.insert(0, config["server_port"])
-        self.upload_dir = os.path.abspath(config["upload_dir"] or "Uploads")
+        configured_upload_dir = config["upload_dir"] or "Uploads"
+        if not os.path.isabs(configured_upload_dir):
+            configured_upload_dir = os.path.join(BASE_DIR, configured_upload_dir)
+        self.upload_dir = os.path.abspath(configured_upload_dir)
         self.upload_dir_entry.delete(0, "end")
         self.upload_dir_entry.insert(0, self.upload_dir)
 
@@ -275,6 +291,7 @@ class ServerApp(ctk.CTk):
             ("Tiến trình", "center"),
             ("Tốc độ", "center"),
             ("Trạng thái", "center"),
+            ("Mở", "center"),
         )
         for column, (text, anchor) in enumerate(header_specs):
             ctk.CTkLabel(header, text=text, text_color=COLORS["muted"], font=ctk.CTkFont(size=11, weight="bold"), anchor=anchor).grid(row=0, column=column, padx=12, sticky="nsew")
@@ -408,11 +425,6 @@ class ServerApp(ctk.CTk):
                         pass
                     break
 
-                self.clients[addr] = client_socket
-                self.log(f"Đã nhận kết nối từ {self.format_addr(addr)}")
-                self.refresh_clients_panel()
-                self.update_dashboard()
-
                 # Mỗi client được xử lý trên một thread riêng để nhận song song.
                 client_handler = threading.Thread(target=self.handle_client, args=(client_socket, addr), daemon=True)
                 client_handler.start()
@@ -424,14 +436,25 @@ class ServerApp(ctk.CTk):
     def handle_client(self, client_socket, addr):
         # Xử lý toàn bộ một phiên nhận file từ một client.
         transfer_key = self.format_addr(addr)
+        is_upload_session = False
         try:
             # Đọc mã lệnh đầu tiên để biết client muốn upload file.
             command_byte = self.recv_exact(client_socket, 1)
             command = command_byte.decode(errors="replace")
 
+            if command == "P":
+                client_socket.sendall(b"OK")
+                return
+
             if command != "U":
                 self.log(f"Lệnh không xác định '{command}' từ {transfer_key}", "WARN")
                 return
+
+            is_upload_session = True
+            self.clients[addr] = client_socket
+            self.log(f"Đã nhận kết nối từ {self.format_addr(addr)}")
+            self.refresh_clients_panel()
+            self.update_dashboard()
 
             # Đọc header: thư mục đích, tên file, kích thước và duplicate policy.
             dir_name_len = struct.unpack("!I", self.recv_exact(client_socket, 4))[0]
@@ -441,6 +464,7 @@ class ServerApp(ctk.CTk):
             file_name = self.recv_exact(client_socket, file_name_len).decode(errors="replace")
             file_size = struct.unpack("!Q", self.recv_exact(client_socket, 8))[0]
             duplicate_policy = self.recv_exact(client_socket, 1).decode(errors="replace") or "R"
+            expected_hash = self.recv_exact(client_socket, 32)
 
             # Làm sạch đường dẫn để chỉ lưu file trong thư mục upload của server.
             safe_target_dir = self.sanitize_subfolder(target_dir)
@@ -462,6 +486,11 @@ class ServerApp(ctk.CTk):
                 offset = 0
             elif os.path.exists(file_path) and duplicate_policy == "S":
                 offset = file_size
+            elif os.path.exists(file_path) and offset >= file_size:
+                existing_hash = self.calculate_file_hash(file_path)
+                if existing_hash != expected_hash:
+                    offset = 0
+                    self.log(f"'{safe_file_name}' đã tồn tại nhưng checksum khác, nhận lại từ đầu.", "WARN")
 
             # Kiểm tra dung lượng trống trước khi báo client bắt đầu gửi file.
             remaining_size = max(file_size - offset, 0)
@@ -479,11 +508,20 @@ class ServerApp(ctk.CTk):
             # Gửi offset cho client: 0 là gửi mới, >0 là resume, >= size là bỏ qua.
             client_socket.sendall(struct.pack("!Q", offset))
 
-            self.create_transfer_row(transfer_key, safe_file_name, file_size)
+            self.create_transfer_row(transfer_key, safe_file_name, file_size, file_path)
             if offset >= file_size:
+                if os.path.exists(file_path) and self.calculate_file_hash(file_path) == expected_hash:
+                    client_socket.sendall(SERVER_VERIFY_SKIPPED)
+                else:
+                    client_socket.sendall(SERVER_VERIFY_FAILED)
+                    self.failed_uploads += 1
+                    self.update_transfer_row(transfer_key, progress=1, speed="0.00 MB/s", state="Sai checksum", color=COLORS["danger"], file_path=file_path)
+                    self.log(f"Không bỏ qua '{safe_file_name}' vì checksum trên máy chủ không khớp.", "ERROR")
+                    self.update_dashboard()
+                    return
                 self.total_files += 1
-                self.update_transfer_row(transfer_key, progress=1, speed="0.00 MB/s", state="Đã bỏ qua", color=COLORS["success"])
-                self.log(f"Đã bỏ qua '{safe_file_name}' vì file đã tồn tại.", "WARN")
+                self.update_transfer_row(transfer_key, progress=1, speed="0.00 MB/s", state="Đã xác minh", color=COLORS["success"], file_path=file_path)
+                self.log(f"Đã xác minh và bỏ qua '{safe_file_name}' vì file đã tồn tại.", "SUCCESS")
                 self.update_dashboard()
                 return
 
@@ -523,9 +561,19 @@ class ServerApp(ctk.CTk):
                         last_update_time = now
                         last_sample_bytes = received_bytes
 
+            actual_hash = self.calculate_file_hash(file_path)
+            if actual_hash != expected_hash:
+                client_socket.sendall(SERVER_VERIFY_FAILED)
+                self.failed_uploads += 1
+                self.update_transfer_row(transfer_key, progress=1, speed="0.00 MB/s", state="Sai checksum", color=COLORS["danger"], file_path=file_path)
+                self.log(f"Checksum không khớp cho '{safe_file_name}'. File có thể bị lỗi.", "ERROR")
+                self.update_dashboard()
+                return
+
+            client_socket.sendall(SERVER_VERIFY_OK)
             self.total_files += 1
-            self.update_transfer_row(transfer_key, progress=1, speed="0.00 MB/s", state="Hoàn tất", color=COLORS["success"])
-            self.log(f"Đã nhận xong '{safe_file_name}' từ {transfer_key}.", "SUCCESS")
+            self.update_transfer_row(transfer_key, progress=1, speed="0.00 MB/s", state="Đã xác minh", color=COLORS["success"], file_path=file_path)
+            self.log(f"Đã nhận và xác minh '{safe_file_name}' từ {transfer_key}. SHA-256: {actual_hash.hex()[:12]}...", "SUCCESS")
             self.update_dashboard()
 
         except ConnectionAbruptlyClosed as e:
@@ -545,11 +593,12 @@ class ServerApp(ctk.CTk):
                 pass
             if addr in self.clients:
                 del self.clients[addr]
-            self.log(f"Kết nối với {transfer_key} đã đóng.")
-            self.refresh_clients_panel()
-            self.update_dashboard()
+            if is_upload_session:
+                self.log(f"Kết nối với {transfer_key} đã đóng.")
+                self.refresh_clients_panel()
+                self.update_dashboard()
 
-    def create_transfer_row(self, key, file_name, file_size):
+    def create_transfer_row(self, key, file_name, file_size, file_path):
         # Tạo dòng hiển thị một phiên nhận file trong tab Phiên nhận.
         def _create():
             if self.empty_transfers_label.winfo_exists():
@@ -574,7 +623,20 @@ class ServerApp(ctk.CTk):
             speed = ctk.CTkLabel(row, text="0.00 MB/s", text_color=COLORS["muted"], anchor="center")
             speed.grid(row=0, column=3, padx=12, sticky="nsew")
             state = ctk.CTkLabel(row, text="Đang nhận", width=118, text_color=COLORS["text"], fg_color=COLORS["primary"], corner_radius=12, padx=10, height=28)
-            state.grid(row=0, column=4, padx=(12, 14), sticky="")
+            state.grid(row=0, column=4, padx=12, sticky="")
+            open_button = ctk.CTkButton(
+                row,
+                text="Mở",
+                command=lambda transfer_key=key: self.open_transfer_file(transfer_key),
+                width=70,
+                height=30,
+                fg_color=COLORS["surface_3"],
+                hover_color=COLORS["border"],
+                text_color=COLORS["button_text"],
+                text_color_disabled=COLORS["button_disabled_text"],
+                state=ctk.DISABLED,
+            )
+            open_button.grid(row=0, column=5, padx=(8, 14), sticky="")
 
             self.transfer_rows[key] = {
                 "row": row,
@@ -583,11 +645,13 @@ class ServerApp(ctk.CTk):
                 "progress": progress,
                 "speed": speed,
                 "state": state,
+                "open": open_button,
+                "path": file_path,
             }
 
         self.after(0, _create)
 
-    def update_transfer_row(self, key, progress=None, speed=None, state=None, color=None):
+    def update_transfer_row(self, key, progress=None, speed=None, state=None, color=None, file_path=None):
         # Cập nhật tiến trình/tốc độ/trạng thái của một phiên nhận từ thread nền.
         if state is not None:
             self.transfer_states[key] = state
@@ -602,8 +666,25 @@ class ServerApp(ctk.CTk):
                 widgets["speed"].configure(text=speed)
             if state is not None:
                 widgets["state"].configure(text=state, fg_color=color or COLORS["surface_3"], text_color=COLORS["text"])
+            if file_path is not None:
+                widgets["path"] = file_path
+            current_path = widgets.get("path")
+            can_open = bool(current_path and os.path.exists(current_path) and state in ("Đã xác minh", "Đã bỏ qua"))
+            widgets["open"].configure(state=ctk.NORMAL if can_open else ctk.DISABLED)
 
         self.after(0, _update)
+
+    def open_transfer_file(self, key):
+        widgets = self.transfer_rows.get(key)
+        file_path = widgets.get("path") if widgets else None
+        if not file_path or not os.path.exists(file_path):
+            self.log("Không tìm thấy tệp để mở.", "ERROR")
+            return
+        try:
+            os.startfile(file_path)
+            self.log(f"Đã mở tệp: {file_path}", "SUCCESS")
+        except Exception as e:
+            self.log(f"Không thể mở tệp: {e}", "ERROR")
 
     def refresh_clients_panel(self):
         # Vẽ lại danh sách client đang kết nối ở panel bên trái.
@@ -697,6 +778,16 @@ class ServerApp(ctk.CTk):
             candidate = os.path.join(folder, f"{stem} ({counter}){ext}")
             counter += 1
         return candidate
+
+    def calculate_file_hash(self, file_path):
+        digest = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.digest()
 
     def get_unblock_ip(self):
         # Nếu server bind 0.0.0.0 thì dùng 127.0.0.1 để tự kết nối mở khóa accept().

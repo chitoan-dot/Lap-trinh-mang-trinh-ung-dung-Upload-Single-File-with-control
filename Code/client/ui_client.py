@@ -7,6 +7,8 @@ import struct
 import time
 import json
 import sys
+import hashlib
+import traceback
 from PIL import Image, ImageDraw
 
 try:
@@ -20,11 +22,21 @@ except Exception:
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 CONFIG_FILE = os.path.join(BASE_DIR, "config", "client_config.json")
 SERVER_ERROR_OFFSET = (1 << 64) - 1
+SERVER_VERIFY_OK = b"V"
+SERVER_VERIFY_SKIPPED = b"S"
+SERVER_VERIFY_FAILED = b"M"
 DUPLICATE_POLICIES = {
     "Tiếp tục nếu còn thiếu": "R",
     "Bỏ qua nếu đã có": "S",
     "Ghi đè": "O",
     "Đổi tên tự động": "N",
+}
+SPEED_LIMITS = {
+    "Không giới hạn": 0,
+    "Demo chậm - 512 KB/s": 512 * 1024,
+    "1 MB/s": 1 * 1024 * 1024,
+    "2 MB/s": 2 * 1024 * 1024,
+    "5 MB/s": 5 * 1024 * 1024,
 }
 QUEUE_COLUMNS = (
     {"weight": 1, "minsize": 280},
@@ -72,6 +84,7 @@ class ClientApp(ClientBase):
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=COLORS["bg"])
+        self.report_callback_exception = self.handle_tk_callback_exception
 
         # Các biến trạng thái dùng để quản lý hàng đợi và phiên upload hiện tại.
         self.file_paths = []
@@ -86,6 +99,10 @@ class ClientApp(ClientBase):
         self.total_uploaded_bytes = 0
         self.queue_total_bytes = 0
         self.queue_done_bytes = 0
+        self.server_available = False
+        self.connection_check_in_progress = False
+        self.current_upload_settings = {}
+        self.is_closing = False
 
         # Nạp icon cho các nút điều khiển, nếu thiếu file ảnh thì tự vẽ icon đơn giản.
         self.icons = {
@@ -107,7 +124,14 @@ class ClientApp(ClientBase):
 
         self.load_config()
         self.update_ui_state()
+        self.after(500, self.schedule_connection_check)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def handle_tk_callback_exception(self, exc, value, tb):
+        message = str(value)
+        if exc.__name__ == "TclError" and "invalid command name" in message:
+            return
+        traceback.print_exception(exc, value, tb)
 
     def get_asset_path(self, asset_name):
         # Tìm đường dẫn asset, hỗ trợ cả khi đóng gói bằng PyInstaller.
@@ -239,6 +263,20 @@ class ClientApp(ClientBase):
         )
         self.duplicate_policy_menu.grid(row=4, column=0, padx=14, pady=5, sticky="ew")
         self.duplicate_policy_menu.set("Tiếp tục nếu còn thiếu")
+        self.speed_limit_menu = ctk.CTkOptionMenu(
+            settings,
+            values=list(SPEED_LIMITS.keys()),
+            height=36,
+            fg_color=COLORS["surface"],
+            button_color=COLORS["surface_3"],
+            button_hover_color=COLORS["border"],
+            text_color=COLORS["text"],
+            dropdown_fg_color=COLORS["surface_2"],
+            dropdown_hover_color=COLORS["surface_3"],
+            dropdown_text_color=COLORS["text"],
+        )
+        self.speed_limit_menu.grid(row=5, column=0, padx=14, pady=5, sticky="ew")
+        self.speed_limit_menu.set("5 MB/s")
 
         self.save_settings_button = ctk.CTkButton(
             settings,
@@ -250,7 +288,18 @@ class ClientApp(ClientBase):
             text_color=COLORS["button_text"],
             text_color_disabled=COLORS["button_disabled_text"],
         )
-        self.save_settings_button.grid(row=5, column=0, padx=14, pady=(10, 14), sticky="ew")
+        self.save_settings_button.grid(row=6, column=0, padx=14, pady=(10, 5), sticky="ew")
+        self.check_connection_button = ctk.CTkButton(
+            settings,
+            text="Kiểm tra kết nối",
+            command=lambda: self.check_server_connection(silent=False),
+            height=36,
+            fg_color=COLORS["primary"],
+            hover_color=COLORS["primary_hover"],
+            text_color=COLORS["button_text"],
+            text_color_disabled=COLORS["button_disabled_text"],
+        )
+        self.check_connection_button.grid(row=7, column=0, padx=14, pady=(5, 14), sticky="ew")
 
     def create_stat_card(self, parent, row, label, value):
         # Tạo một ô thống kê nhỏ trong sidebar.
@@ -507,7 +556,7 @@ class ClientApp(ClientBase):
         # Xóa khỏi bảng các file đã hoàn tất, lỗi hoặc đã bỏ qua.
         for path, widgets in list(self.upload_rows.items()):
             state = self.file_states.get(path, widgets["state"].cget("text"))
-            if state in ("Hoàn tất", "Lỗi", "Đã bỏ qua"):
+            if state in ("Hoàn tất", "Đã xác minh", "Lỗi", "Đã bỏ qua"):
                 widgets["row"].destroy()
                 del self.upload_rows[path]
                 self.file_states.pop(path, None)
@@ -571,15 +620,19 @@ class ClientApp(ClientBase):
             self.stop_button.configure(state=ctk.DISABLED)
             self.browse_button.configure(state=ctk.NORMAL)
             self.save_settings_button.configure(state=ctk.NORMAL)
+            self.check_connection_button.configure(state=ctk.NORMAL)
+            self.speed_limit_menu.configure(state=ctk.NORMAL)
             self.retry_button.configure(state=ctk.NORMAL)
             self.state_chip.configure(text="SẴN SÀNG", fg_color=COLORS["surface_3"], text_color=COLORS["muted"])
-            self.connection_pill.configure(text="CHƯA KẾT NỐI", fg_color=COLORS["surface_3"], text_color=COLORS["muted"])
+            self.apply_connection_status(self.server_available)
         elif self.upload_state == "uploading":
             self.start_button.configure(state=ctk.DISABLED)
             self.pause_resume_button.configure(state=ctk.NORMAL, text="Tạm dừng", image=self.icons["pause"])
             self.stop_button.configure(state=ctk.NORMAL)
             self.browse_button.configure(state=ctk.DISABLED)
             self.save_settings_button.configure(state=ctk.DISABLED)
+            self.check_connection_button.configure(state=ctk.DISABLED)
+            self.speed_limit_menu.configure(state=ctk.DISABLED)
             self.retry_button.configure(state=ctk.DISABLED)
             self.state_chip.configure(text="ĐANG GỬI", fg_color=COLORS["primary"], text_color="white")
             self.connection_pill.configure(text="ĐÃ KẾT NỐI", fg_color=COLORS["success"], text_color="white")
@@ -587,8 +640,65 @@ class ClientApp(ClientBase):
             self.start_button.configure(state=ctk.DISABLED)
             self.pause_resume_button.configure(state=ctk.NORMAL, text="Tiếp tục", image=self.icons["resume"])
             self.stop_button.configure(state=ctk.NORMAL)
+            self.check_connection_button.configure(state=ctk.DISABLED)
+            self.speed_limit_menu.configure(state=ctk.DISABLED)
             self.retry_button.configure(state=ctk.DISABLED)
             self.state_chip.configure(text="TẠM DỪNG", fg_color=COLORS["warning"], text_color=COLORS["bg"])
+
+    def apply_connection_status(self, is_available):
+        self.server_available = is_available
+        if self.upload_state != "stopped":
+            return
+        if is_available:
+            self.connection_pill.configure(text="SERVER SẴN SÀNG", fg_color=COLORS["success"], text_color="white")
+        else:
+            self.connection_pill.configure(text="CHƯA KẾT NỐI", fg_color=COLORS["surface_3"], text_color=COLORS["muted"])
+
+    def check_server_connection(self, silent=True):
+        if self.connection_check_in_progress or self.upload_state != "stopped":
+            return
+        server_ip = self.ip_entry.get().strip()
+        try:
+            server_port = int(self.port_entry.get().strip())
+        except ValueError:
+            self.apply_connection_status(False)
+            if not silent:
+                self.status_label.configure(text="Port máy chủ phải là số.")
+            return
+        self.connection_check_in_progress = True
+        if not silent:
+            self.status_label.configure(text=f"Đang kiểm tra {server_ip}:{server_port}...")
+        threading.Thread(target=self._check_server_connection_worker, args=(server_ip, server_port, silent), daemon=True).start()
+
+    def _check_server_connection_worker(self, server_ip, server_port, silent):
+        is_available = False
+        try:
+            with socket.create_connection((server_ip, server_port), timeout=0.8) as probe:
+                probe.settimeout(0.8)
+                probe.sendall(b"P")
+                is_available = probe.recv(2) == b"OK"
+        except Exception:
+            is_available = False
+
+        def _finish():
+            self.connection_check_in_progress = False
+            self.apply_connection_status(is_available)
+            if not silent:
+                if is_available:
+                    self.status_label.configure(text=f"Đã kết nối được máy chủ {server_ip}:{server_port}.")
+                    self.show_toast("Máy chủ sẵn sàng", "success")
+                else:
+                    self.status_label.configure(text=f"Chưa kết nối được máy chủ {server_ip}:{server_port}.")
+                    self.show_toast("Chưa kết nối được máy chủ", "warning")
+
+        self.after(0, _finish)
+
+    def schedule_connection_check(self):
+        if self.is_closing:
+            return
+        if self.upload_state == "stopped" and not self.connection_check_in_progress:
+            self.check_server_connection(silent=True)
+        self.after(2500, self.schedule_connection_check)
 
     def start_upload(self):
         # Kiểm tra dữ liệu nhập và tạo thread nền để không làm treo giao diện.
@@ -596,11 +706,19 @@ class ClientApp(ClientBase):
             messagebox.showerror("Chưa có tệp", "Vui lòng thêm ít nhất một tệp.", parent=self)
             return
         try:
-            int(self.port_entry.get())
+            server_port = int(self.port_entry.get())
         except ValueError:
             messagebox.showerror("Port không hợp lệ", "Port máy chủ phải là số.", parent=self)
             return
 
+        self.current_upload_settings = {
+            "server_ip": self.ip_entry.get().strip(),
+            "server_port": server_port,
+            "target_dir": self.server_folder_entry.get().strip(),
+            "duplicate_policy": DUPLICATE_POLICIES.get(self.duplicate_policy_menu.get(), "R"),
+            "speed_limit": self.get_speed_limit_bytes(),
+        }
+        self.save_config(silent=True)
         self.upload_state = "uploading"
         self.update_ui_state()
         self.upload_thread = threading.Thread(target=self.upload_queue_thread, daemon=True)
@@ -633,6 +751,7 @@ class ClientApp(ClientBase):
 
     def on_closing(self):
         # Khi đóng cửa sổ, dừng upload và lưu lại cấu hình hiện tại.
+        self.is_closing = True
         self.stop_upload()
         self.save_config(silent=True)
         self.destroy()
@@ -644,6 +763,7 @@ class ClientApp(ClientBase):
             "server_port": self.port_entry.get(),
             "server_folder": self.server_folder_entry.get(),
             "duplicate_policy": self.duplicate_policy_menu.get(),
+            "speed_limit": self.speed_limit_menu.get(),
         }
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -656,7 +776,7 @@ class ClientApp(ClientBase):
 
     def load_config(self):
         # Đọc cấu hình client từ JSON; nếu chưa có thì dùng giá trị mặc định.
-        defaults = {"server_ip": "127.0.0.1", "server_port": "8888", "server_folder": "", "duplicate_policy": "Tiếp tục nếu còn thiếu"}
+        defaults = {"server_ip": "127.0.0.1", "server_port": "8888", "server_folder": "", "duplicate_policy": "Tiếp tục nếu còn thiếu", "speed_limit": "5 MB/s"}
         try:
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -668,10 +788,11 @@ class ClientApp(ClientBase):
         self.port_entry.insert(0, defaults["server_port"])
         self.server_folder_entry.insert(0, defaults["server_folder"])
         self.duplicate_policy_menu.set(defaults.get("duplicate_policy", "Tiếp tục nếu còn thiếu"))
+        self.speed_limit_menu.set(defaults.get("speed_limit", "5 MB/s"))
 
     def upload_queue_thread(self):
         # Thread nền duyệt lần lượt các file chưa hoàn tất trong hàng đợi.
-        pending_paths = [path for path in self.file_paths if self.file_states.get(path) not in ("Hoàn tất", "Đã bỏ qua")]
+        pending_paths = [path for path in self.file_paths if self.file_states.get(path) not in ("Hoàn tất", "Đã xác minh", "Đã bỏ qua")]
         self.queue_total_bytes = sum(os.path.getsize(path) for path in pending_paths if os.path.exists(path))
         self.queue_done_bytes = 0
         self.update_total_progress(0)
@@ -681,7 +802,7 @@ class ClientApp(ClientBase):
             if self.upload_state == "stopped":
                 break
             current_state = self.file_states.get(path)
-            if current_state in ("Hoàn tất", "Đã bỏ qua"):
+            if current_state in ("Hoàn tất", "Đã xác minh", "Đã bỏ qua"):
                 continue
             self.current_file = path
             self.upload_single_file(path)
@@ -700,19 +821,58 @@ class ClientApp(ClientBase):
         self.after(0, lambda p=progress: self.total_progress_bar.set(p))
         self.after(0, lambda value=text: self.total_progress_label.configure(text=value))
 
+    def calculate_file_hash(self, file_path):
+        digest = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.digest()
+
+    def get_speed_limit_bytes(self):
+        return SPEED_LIMITS.get(self.speed_limit_menu.get(), 0)
+
+    def throttle_upload_speed(self, session_start_time, bytes_sent_in_session, speed_limit):
+        if speed_limit <= 0:
+            return
+        expected_elapsed = bytes_sent_in_session / speed_limit
+        while self.upload_state == "uploading":
+            actual_elapsed = time.time() - session_start_time
+            sleep_time = expected_elapsed - actual_elapsed
+            if sleep_time <= 0:
+                return
+            time.sleep(min(sleep_time, 0.05))
+
     def upload_single_file(self, file_path):
         # Gửi một file duy nhất tới server theo cấu hình hiện tại.
-        server_ip = self.ip_entry.get()
-        server_port = int(self.port_entry.get())
+        settings = self.current_upload_settings or {
+            "server_ip": self.ip_entry.get().strip(),
+            "server_port": int(self.port_entry.get()),
+            "target_dir": self.server_folder_entry.get().strip(),
+            "duplicate_policy": DUPLICATE_POLICIES.get(self.duplicate_policy_menu.get(), "R"),
+            "speed_limit": self.get_speed_limit_bytes(),
+        }
+        server_ip = settings["server_ip"]
+        server_port = settings["server_port"]
         file_name = os.path.basename(file_path)
         file_size = os.path.getsize(file_path)
-        target_dir = self.server_folder_entry.get().strip()
-        duplicate_policy = DUPLICATE_POLICIES.get(self.duplicate_policy_menu.get(), "R")
+        target_dir = settings["target_dir"]
+        duplicate_policy = settings["duplicate_policy"]
+        speed_limit = settings["speed_limit"]
 
         self.after(0, lambda: self.current_file_label.configure(text=file_name))
         self.update_row(file_path, state="Đang kết nối", state_color=COLORS["warning"])
 
         try:
+            self.after(0, lambda: self.status_label.configure(text=f"Đang kiểm tra toàn vẹn: {file_name}"))
+            self.update_row(file_path, state="Đang kiểm tra", state_color=COLORS["warning"])
+            file_hash = self.calculate_file_hash(file_path)
+            if self.upload_state == "stopped":
+                self.update_row(file_path, state="Đã dừng", state_color=COLORS["warning"])
+                return
+
             # Mở kết nối TCP tới server.
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client_socket.connect((server_ip, server_port))
@@ -731,6 +891,7 @@ class ClientApp(ClientBase):
             self.client_socket.sendall(file_name_bytes)
             self.client_socket.sendall(struct.pack("!Q", file_size))
             self.client_socket.sendall(duplicate_policy.encode())
+            self.client_socket.sendall(file_hash)
 
             # Server trả offset để client biết gửi từ đầu, gửi tiếp, hoặc bỏ qua.
             offset_data = self.recv_exact(self.client_socket, 8)
@@ -739,6 +900,9 @@ class ClientApp(ClientBase):
                 raise RuntimeError("Máy chủ không đủ dung lượng để nhận tệp này.")
 
             if offset >= file_size:
+                verify_status = self.recv_exact(self.client_socket, 1)
+                if verify_status == SERVER_VERIFY_FAILED:
+                    raise RuntimeError("Tệp trên máy chủ đã tồn tại nhưng checksum không khớp.")
                 self.completed_count += 1
                 self.update_row(file_path, progress=1, eta="0s", state="Đã bỏ qua", state_color=COLORS["success"])
                 self.queue_done_bytes += file_size
@@ -750,9 +914,12 @@ class ClientApp(ClientBase):
             with open(file_path, "rb") as f:
                 f.seek(offset)
                 sent_bytes = offset
+                session_sent_bytes = 0
+                session_start_time = time.time()
                 last_update_time = time.time()
                 last_sample_bytes = sent_bytes
                 speed_mb = 0.0
+                chunk_size = 16384 if speed_limit > 0 else 65536
 
                 while sent_bytes < file_size and self.upload_state != "stopped":
                     # Khi tạm dừng, giữ kết nối nhưng chưa đọc/gửi chunk tiếp theo.
@@ -766,14 +933,16 @@ class ClientApp(ClientBase):
                     if self.upload_state == "stopped":
                         break
 
-                    data = f.read(65536)
+                    data = f.read(chunk_size)
                     if not data:
                         break
 
                     # Gửi chunk dữ liệu qua socket.
                     self.client_socket.sendall(data)
                     sent_bytes += len(data)
+                    session_sent_bytes += len(data)
                     self.total_uploaded_bytes += len(data)
+                    self.throttle_upload_speed(session_start_time, session_sent_bytes, speed_limit)
 
                     # Giới hạn tần suất cập nhật UI để giao diện không bị quá tải.
                     now = time.time()
@@ -803,8 +972,15 @@ class ClientApp(ClientBase):
             if self.upload_state == "stopped":
                 self.update_row(file_path, state="Đã dừng", state_color=COLORS["warning"])
             else:
+                self.after(0, lambda: self.status_label.configure(text=f"Đang xác minh trên máy chủ: {file_name}"))
+                self.update_row(file_path, state="Đang xác minh", state_color=COLORS["warning"])
+                verify_status = self.recv_exact(self.client_socket, 1)
+                if verify_status == SERVER_VERIFY_FAILED:
+                    raise RuntimeError("Checksum không khớp sau khi upload. File nhận có thể bị lỗi.")
+                if verify_status not in (SERVER_VERIFY_OK, SERVER_VERIFY_SKIPPED):
+                    raise RuntimeError("Máy chủ trả về kết quả xác minh không hợp lệ.")
                 self.completed_count += 1
-                self.update_row(file_path, progress=1, eta="0s", state="Hoàn tất", state_color=COLORS["success"])
+                self.update_row(file_path, progress=1, eta="0s", state="Đã xác minh", state_color=COLORS["success"])
                 self.queue_done_bytes += file_size
                 self.update_total_progress(0)
                 self.after(0, lambda: self.status_label.configure(text=f"Hoàn tất: {file_name}"))
@@ -851,7 +1027,7 @@ class ClientApp(ClientBase):
 
     def refresh_stats(self):
         # Đếm lại số file hoàn tất và lỗi để cập nhật sidebar.
-        done = sum(1 for state in self.file_states.values() if state in ("Hoàn tất", "Đã bỏ qua"))
+        done = sum(1 for state in self.file_states.values() if state in ("Hoàn tất", "Đã xác minh", "Đã bỏ qua"))
         failed = sum(1 for state in self.file_states.values() if state == "Lỗi")
         self.after(0, lambda: self.done_value.configure(text=f"{done} tệp"))
         self.after(0, lambda: self.failed_value.configure(text=f"{failed} tệp"))
