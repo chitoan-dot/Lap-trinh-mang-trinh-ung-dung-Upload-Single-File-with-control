@@ -30,3 +30,5 @@ Nen chay server truoc, sau do moi chay client.
 
 - File dung de test upload co the dat trong `Extra/test-files/`.
 - Thu muc `Uploads/` la du lieu sinh ra khi chay server, khong can dua vao source code.
+
+Đăng nhập được rồi
