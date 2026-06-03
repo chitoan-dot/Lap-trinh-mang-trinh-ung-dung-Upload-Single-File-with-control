@@ -2,7 +2,6 @@ from client.ui_client import ClientApp
 
 
 def run_client():
-    # Tạo và chạy vòng lặp giao diện client.
     app = ClientApp()
     app.mainloop()
 

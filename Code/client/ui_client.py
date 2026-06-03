@@ -1,1055 +1,287 @@
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
-import socket
-import threading
-import os
-import struct
-import time
-import json
-import sys
-import hashlib
-import traceback
-from PIL import Image, ImageDraw
-
-try:
-    from tkinterdnd2 import DND_FILES, TkinterDnD
-    DND_AVAILABLE = True
-except Exception:
-    DND_FILES = None
-    TkinterDnD = None
-    DND_AVAILABLE = False
-
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-CONFIG_FILE = os.path.join(BASE_DIR, "config", "client_config.json")
-SERVER_ERROR_OFFSET = (1 << 64) - 1
-SERVER_VERIFY_OK = b"V"
-SERVER_VERIFY_SKIPPED = b"S"
-SERVER_VERIFY_FAILED = b"M"
-DUPLICATE_POLICIES = {
-    "Tiếp tục nếu còn thiếu": "R",
-    "Bỏ qua nếu đã có": "S",
-    "Ghi đè": "O",
-    "Đổi tên tự động": "N",
-}
-SPEED_LIMITS = {
-    "Không giới hạn": 0,
-    "Demo chậm - 512 KB/s": 512 * 1024,
-    "1 MB/s": 1 * 1024 * 1024,
-    "2 MB/s": 2 * 1024 * 1024,
-    "5 MB/s": 5 * 1024 * 1024,
-}
-QUEUE_COLUMNS = (
-    {"weight": 1, "minsize": 280},
-    {"weight": 0, "minsize": 150},
-    {"weight": 0, "minsize": 340},
-    {"weight": 0, "minsize": 90},
-    {"weight": 0, "minsize": 170},
-)
-
-COLORS = {
-    "bg": "#0B111A",
-    "surface": "#121A26",
-    "surface_2": "#182231",
-    "surface_3": "#202C3D",
-    "border": "#2C3B50",
-    "text": "#F4F7FB",
-    "muted": "#A7B6CB",
-    "subtle": "#72839B",
-    "primary": "#4F8CFF",
-    "primary_hover": "#3B73E6",
-    "success": "#2ECC71",
-    "warning": "#F4B860",
-    "danger": "#F05D5E",
-    "danger_hover": "#D94A4B",
-    "button_text": "#FFFFFF",
-    "button_disabled_text": "#D7E2F2",
-}
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import Qt
+from layout.theme import *
+from client.upload_ui import UploadUI
 
 
-if DND_AVAILABLE:
-    class ClientBase(ctk.CTk, TkinterDnD.DnDWrapper):
-        pass
-else:
-    ClientBase = ctk.CTk
-
-
-class ClientApp(ClientBase):
+class ClientUI(QWidget):
     def __init__(self):
         super().__init__()
-
-        # Cấu hình cửa sổ chính và theme cho giao diện client.
-        self.title("Trình gửi tệp")
-        self.geometry("1120x700")
-        self.minsize(980, 640)
-        ctk.set_appearance_mode("Dark")
-        ctk.set_default_color_theme("blue")
-        self.configure(fg_color=COLORS["bg"])
-        self.report_callback_exception = self.handle_tk_callback_exception
-
-        # Các biến trạng thái dùng để quản lý hàng đợi và phiên upload hiện tại.
-        self.file_paths = []
-        self.upload_rows = {}
-        self.file_states = {}
-        self.upload_state = "stopped"
-        self.upload_thread = None
-        self.client_socket = None
-        self.current_file = None
-        self.completed_count = 0
-        self.failed_count = 0
-        self.total_uploaded_bytes = 0
-        self.queue_total_bytes = 0
-        self.queue_done_bytes = 0
-        self.server_available = False
-        self.connection_check_in_progress = False
-        self.current_upload_settings = {}
-        self.is_closing = False
-
-        # Nạp icon cho các nút điều khiển, nếu thiếu file ảnh thì tự vẽ icon đơn giản.
-        self.icons = {
-            "start": self.make_icon("start"),
-            "pause": self.make_icon("pause"),
-            "resume": self.make_icon("resume"),
-            "stop": self.make_icon("stop"),
-            "browse": self.make_icon("browse"),
-        }
-
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-
-        # Dựng các vùng giao diện chính.
-        self.build_header()
-        self.build_shell()
-        self.build_toast()
-        self.enable_drag_and_drop()
-
-        self.load_config()
-        self.update_ui_state()
-        self.after(500, self.schedule_connection_check)
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-    def handle_tk_callback_exception(self, exc, value, tb):
-        message = str(value)
-        if exc.__name__ == "TclError" and "invalid command name" in message:
-            return
-        traceback.print_exception(exc, value, tb)
-
-    def get_asset_path(self, asset_name):
-        # Tìm đường dẫn asset, hỗ trợ cả khi đóng gói bằng PyInstaller.
-        try:
-            base_path = sys._MEIPASS
-        except Exception:
-            base_path = os.path.abspath(".")
-        return os.path.join(base_path, "assets", asset_name)
-
-    def make_icon(self, name):
-        # Ưu tiên đọc icon PNG có sẵn; nếu không có thì vẽ icon bằng Pillow.
-        path = self.get_asset_path(f"{name}.png")
-        try:
-            image = Image.open(path).convert("RGBA")
-            if image.getbbox():
-                return ctk.CTkImage(image, size=(18, 18))
-        except Exception:
-            pass
-
-        image = Image.new("RGBA", (24, 24), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
-        color = (248, 250, 252, 255)
-        if name == "start":
-            draw.polygon([(8, 5), (19, 12), (8, 19)], fill=color)
-        elif name == "pause":
-            draw.rounded_rectangle((7, 5, 10, 19), radius=1, fill=color)
-            draw.rounded_rectangle((14, 5, 17, 19), radius=1, fill=color)
-        elif name == "resume":
-            draw.polygon([(7, 5), (18, 12), (7, 19)], fill=color)
-        elif name == "stop":
-            draw.rounded_rectangle((6, 6, 18, 18), radius=2, fill=color)
-        else:
-            draw.rounded_rectangle((4, 8, 20, 18), radius=3, outline=color, width=2)
-            draw.line((7, 8, 10, 5, 14, 5, 17, 8), fill=color, width=2)
-        return ctk.CTkImage(image, size=(18, 18))
-
-    def build_header(self):
-        # Vùng tiêu đề trên cùng hiển thị tên app và trạng thái kết nối.
-        header = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=0, height=68)
-        header.grid(row=0, column=0, sticky="ew")
-        header.grid_columnconfigure(1, weight=1)
-        header.grid_propagate(False)
-
-        logo = ctk.CTkFrame(header, fg_color=COLORS["primary"], width=34, height=34, corner_radius=10)
-        logo.grid(row=0, column=0, padx=(22, 12), pady=16)
-        logo.grid_propagate(False)
-        ctk.CTkLabel(logo, text="UP", font=ctk.CTkFont(size=12, weight="bold"), text_color="white").place(relx=0.5, rely=0.5, anchor="center")
-
-        title_box = ctk.CTkFrame(header, fg_color="transparent")
-        title_box.grid(row=0, column=1, sticky="w")
-        ctk.CTkLabel(title_box, text="Trình gửi tệp", font=ctk.CTkFont(size=20, weight="bold"), text_color=COLORS["text"]).pack(anchor="w")
-        ctk.CTkLabel(title_box, text="Quản lý hàng đợi, theo dõi tiến trình và tiếp tục gửi tệp", font=ctk.CTkFont(size=12), text_color=COLORS["muted"]).pack(anchor="w")
-
-        self.connection_pill = ctk.CTkLabel(
-            header,
-            text="CHƯA KẾT NỐI",
-            width=128,
-            fg_color=COLORS["surface_3"],
-            text_color=COLORS["muted"],
-            corner_radius=16,
-            padx=14,
-            height=32,
-            font=ctk.CTkFont(size=12, weight="bold"),
-        )
-        self.connection_pill.grid(row=0, column=2, padx=22, pady=18, sticky="e")
-
-    def build_shell(self):
-        # Bố cục chính gồm sidebar cấu hình và khu vực bảng tiến trình.
-        shell = ctk.CTkFrame(self, fg_color="transparent")
-        shell.grid(row=1, column=0, padx=18, pady=18, sticky="nsew")
-        shell.grid_columnconfigure(0, minsize=292)
-        shell.grid_columnconfigure(1, weight=1)
-        shell.grid_rowconfigure(0, weight=1)
-
-        self.sidebar = ctk.CTkScrollableFrame(
-            shell,
-            fg_color=COLORS["surface"],
-            corner_radius=16,
-            scrollbar_button_color=COLORS["surface_3"],
-            scrollbar_button_hover_color=COLORS["border"],
-        )
-        self.sidebar.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
-        self.sidebar.grid_columnconfigure(0, weight=1)
-
-        self.main = ctk.CTkFrame(shell, fg_color="transparent")
-        self.main.grid(row=0, column=1, sticky="nsew")
-        self.main.grid_columnconfigure(0, weight=1)
-        self.main.grid_columnconfigure(1, weight=2)
-        self.main.grid_rowconfigure(0, weight=0)
-        self.main.grid_rowconfigure(1, weight=4)
-
-        self.build_sidebar()
-        self.build_upload_card()
-        self.build_progress_card()
-        self.build_queue_table()
-        self.build_controls()
-
-    def build_sidebar(self):
-        # Sidebar hiển thị thống kê nhanh và cấu hình server đích.
-        ctk.CTkLabel(self.sidebar, text="Tổng quan", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLORS["text"]).grid(row=0, column=0, padx=18, pady=(20, 12), sticky="w")
-
-        self.speed_value = self.create_stat_card(self.sidebar, 1, "Tốc độ gửi", "0.00 MB/s")
-        self.eta_value = self.create_stat_card(self.sidebar, 2, "ETA", "--")
-        self.done_value = self.create_stat_card(self.sidebar, 3, "Hoàn tất", "0 tệp")
-        self.failed_value = self.create_stat_card(self.sidebar, 4, "Lỗi", "0 tệp")
-
-        settings = ctk.CTkFrame(self.sidebar, fg_color=COLORS["surface_2"], corner_radius=14)
-        settings.grid(row=5, column=0, padx=14, pady=(14, 16), sticky="ew")
-        settings.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(settings, text="Máy chủ nhận tệp", font=ctk.CTkFont(size=14, weight="bold"), text_color=COLORS["text"]).grid(row=0, column=0, padx=14, pady=(14, 8), sticky="w")
-        self.ip_entry = ctk.CTkEntry(settings, placeholder_text="127.0.0.1", height=36, fg_color=COLORS["surface"], border_color=COLORS["border"])
-        self.ip_entry.grid(row=1, column=0, padx=14, pady=5, sticky="ew")
-        self.port_entry = ctk.CTkEntry(settings, placeholder_text="8888", height=36, fg_color=COLORS["surface"], border_color=COLORS["border"])
-        self.port_entry.grid(row=2, column=0, padx=14, pady=5, sticky="ew")
-        self.server_folder_entry = ctk.CTkEntry(settings, placeholder_text="Thư mục lưu trên máy chủ", height=36, fg_color=COLORS["surface"], border_color=COLORS["border"])
-        self.server_folder_entry.grid(row=3, column=0, padx=14, pady=5, sticky="ew")
-        self.duplicate_policy_menu = ctk.CTkOptionMenu(
-            settings,
-            values=list(DUPLICATE_POLICIES.keys()),
-            height=36,
-            fg_color=COLORS["surface"],
-            button_color=COLORS["surface_3"],
-            button_hover_color=COLORS["border"],
-            text_color=COLORS["text"],
-            dropdown_fg_color=COLORS["surface_2"],
-            dropdown_hover_color=COLORS["surface_3"],
-            dropdown_text_color=COLORS["text"],
-        )
-        self.duplicate_policy_menu.grid(row=4, column=0, padx=14, pady=5, sticky="ew")
-        self.duplicate_policy_menu.set("Tiếp tục nếu còn thiếu")
-        self.speed_limit_menu = ctk.CTkOptionMenu(
-            settings,
-            values=list(SPEED_LIMITS.keys()),
-            height=36,
-            fg_color=COLORS["surface"],
-            button_color=COLORS["surface_3"],
-            button_hover_color=COLORS["border"],
-            text_color=COLORS["text"],
-            dropdown_fg_color=COLORS["surface_2"],
-            dropdown_hover_color=COLORS["surface_3"],
-            dropdown_text_color=COLORS["text"],
-        )
-        self.speed_limit_menu.grid(row=5, column=0, padx=14, pady=5, sticky="ew")
-        self.speed_limit_menu.set("5 MB/s")
-
-        self.save_settings_button = ctk.CTkButton(
-            settings,
-            text="Lưu cài đặt",
-            command=self.save_config,
-            height=36,
-            fg_color=COLORS["surface_3"],
-            hover_color=COLORS["border"],
-            text_color=COLORS["button_text"],
-            text_color_disabled=COLORS["button_disabled_text"],
-        )
-        self.save_settings_button.grid(row=6, column=0, padx=14, pady=(10, 5), sticky="ew")
-        self.check_connection_button = ctk.CTkButton(
-            settings,
-            text="Kiểm tra kết nối",
-            command=lambda: self.check_server_connection(silent=False),
-            height=36,
-            fg_color=COLORS["primary"],
-            hover_color=COLORS["primary_hover"],
-            text_color=COLORS["button_text"],
-            text_color_disabled=COLORS["button_disabled_text"],
-        )
-        self.check_connection_button.grid(row=7, column=0, padx=14, pady=(5, 14), sticky="ew")
-
-    def create_stat_card(self, parent, row, label, value):
-        # Tạo một ô thống kê nhỏ trong sidebar.
-        card = ctk.CTkFrame(parent, fg_color=COLORS["surface_2"], corner_radius=14)
-        card.grid(row=row, column=0, padx=14, pady=6, sticky="ew")
-        card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(card, text=label, font=ctk.CTkFont(size=12), text_color=COLORS["muted"]).grid(row=0, column=0, padx=14, pady=(12, 2), sticky="w")
-        value_label = ctk.CTkLabel(card, text=value, font=ctk.CTkFont(size=20, weight="bold"), text_color=COLORS["text"])
-        value_label.grid(row=1, column=0, padx=14, pady=(0, 12), sticky="w")
-        return value_label
-
-    def build_upload_card(self):
-        # Khu vực chọn file hoặc kéo thả file vào hàng đợi.
-        card = ctk.CTkFrame(self.main, fg_color=COLORS["surface"], corner_radius=16)
-        card.grid(row=0, column=0, padx=(0, 12), sticky="nsew")
-        card.grid_columnconfigure(0, weight=1)
-
-        self.drop_card = ctk.CTkFrame(card, fg_color=COLORS["surface_2"], corner_radius=14, border_width=1, border_color=COLORS["border"], height=132)
-        self.drop_card.grid(row=0, column=0, padx=14, pady=14, sticky="ew")
-        self.drop_card.grid_columnconfigure(0, weight=1)
-        self.drop_card.grid_propagate(False)
-        self.drop_card.bind("<Button-1>", lambda _event: self.browse_files())
-
-        ctk.CTkLabel(self.drop_card, text="Thêm tệp để gửi", font=ctk.CTkFont(size=18, weight="bold"), text_color=COLORS["text"], anchor="center").grid(row=0, column=0, padx=20, pady=(24, 4), sticky="ew")
-        hint = "Kéo thả tệp vào cửa sổ hoặc bấm để chọn." if DND_AVAILABLE else "Bấm để chọn tệp. Có hỗ trợ chọn nhiều tệp."
-        ctk.CTkLabel(self.drop_card, text=hint, font=ctk.CTkFont(size=12), text_color=COLORS["muted"], anchor="center").grid(row=1, column=0, padx=20, sticky="ew")
-
-        browse = ctk.CTkButton(
-            self.drop_card,
-            text="Chọn tệp",
-            image=self.icons["browse"],
-            command=self.browse_files,
-            height=34,
-            width=132,
-            fg_color=COLORS["primary"],
-            hover_color=COLORS["primary_hover"],
-            text_color=COLORS["button_text"],
-            text_color_disabled=COLORS["button_disabled_text"],
-        )
-        browse.grid(row=2, column=0, padx=20, pady=(14, 20))
-        self.browse_button = browse
-
-    def build_progress_card(self):
-        # Khu vực hiển thị tiến trình của file hiện tại và toàn bộ hàng đợi.
-        card = ctk.CTkFrame(self.main, fg_color=COLORS["surface"], corner_radius=16)
-        card.grid(row=0, column=1, sticky="nsew")
-        card.grid_columnconfigure(0, weight=1)
-
-        top = ctk.CTkFrame(card, fg_color="transparent")
-        top.grid(row=0, column=0, padx=16, pady=(12, 4), sticky="ew")
-        top.grid_columnconfigure(0, weight=1)
-
-        self.current_file_label = ctk.CTkLabel(top, text="Chưa có tệp nào đang gửi", font=ctk.CTkFont(size=15, weight="bold"), text_color=COLORS["text"], anchor="w")
-        self.current_file_label.grid(row=0, column=0, sticky="ew")
-        self.state_chip = ctk.CTkLabel(top, text="SẴN SÀNG", width=112, fg_color=COLORS["surface_3"], text_color=COLORS["muted"], corner_radius=14, padx=12, height=28, font=ctk.CTkFont(size=11, weight="bold"))
-        self.state_chip.grid(row=0, column=1, sticky="e")
-
-        self.progress_bar = ctk.CTkProgressBar(card, height=14, fg_color=COLORS["surface_3"], progress_color=COLORS["primary"], corner_radius=8)
-        self.progress_bar.grid(row=1, column=0, padx=16, pady=(2, 5), sticky="ew")
-        self.progress_bar.set(0)
-
-        meta = ctk.CTkFrame(card, fg_color="transparent")
-        meta.grid(row=2, column=0, padx=16, pady=(0, 12), sticky="ew")
-        meta.grid_columnconfigure((0, 1, 2), weight=1)
-        self.progress_label = ctk.CTkLabel(meta, text="0.00% | 0 B / 0 B", text_color=COLORS["muted"], anchor="w")
-        self.progress_label.grid(row=0, column=0, sticky="w")
-        self.speed_label = ctk.CTkLabel(meta, text="Tốc độ: 0.00 MB/s", text_color=COLORS["muted"])
-        self.speed_label.grid(row=0, column=1)
-        self.eta_label = ctk.CTkLabel(meta, text="ETA: --", text_color=COLORS["muted"], anchor="e")
-        self.eta_label.grid(row=0, column=2, sticky="e")
-        self.total_progress_bar = ctk.CTkProgressBar(card, height=8, fg_color=COLORS["surface_3"], progress_color=COLORS["success"], corner_radius=6)
-        self.total_progress_bar.grid(row=3, column=0, padx=16, pady=(0, 4), sticky="ew")
-        self.total_progress_bar.set(0)
-        self.total_progress_label = ctk.CTkLabel(card, text="Tổng: 0.00% | 0 B / 0 B", text_color=COLORS["subtle"], anchor="w", font=ctk.CTkFont(size=11))
-        self.total_progress_label.grid(row=4, column=0, padx=16, pady=(0, 10), sticky="ew")
-
-    def build_queue_table(self):
-        # Bảng hàng đợi hiển thị từng file, dung lượng, tiến trình, ETA và trạng thái.
-        table = ctk.CTkFrame(self.main, fg_color=COLORS["surface"], corner_radius=16)
-        self.queue_table = table
-        table.grid(row=1, column=0, columnspan=2, pady=(12, 0), sticky="nsew")
-        table.grid_columnconfigure(0, weight=1)
-        table.grid_rowconfigure(1, weight=0)
-        table.grid_rowconfigure(2, weight=1)
-
-        toolbar = ctk.CTkFrame(table, fg_color="transparent")
-        toolbar.grid(row=0, column=0, padx=18, pady=(16, 10), sticky="ew")
-        toolbar.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(toolbar, text="Hàng đợi gửi tệp", font=ctk.CTkFont(size=15, weight="bold"), text_color=COLORS["text"]).grid(row=0, column=0, sticky="w")
-        self.retry_button = ctk.CTkButton(toolbar, text="Gửi lại lỗi", width=126, height=32, command=self.retry_failed, fg_color=COLORS["surface_3"], hover_color=COLORS["border"], text_color=COLORS["button_text"], text_color_disabled=COLORS["button_disabled_text"])
-        self.retry_button.grid(row=0, column=1, padx=(0, 8), sticky="e")
-        self.clear_button = ctk.CTkButton(toolbar, text="Xóa mục xong", width=150, height=32, command=self.clear_completed, fg_color=COLORS["surface_3"], hover_color=COLORS["border"], text_color=COLORS["button_text"], text_color_disabled=COLORS["button_disabled_text"])
-        self.clear_button.grid(row=0, column=2, sticky="e")
-
-        header = ctk.CTkFrame(table, fg_color=COLORS["surface_2"], corner_radius=8)
-        header.grid(row=1, column=0, padx=18, pady=(0, 8), sticky="ew")
-        header.grid_propagate(False)
-        header.configure(height=46)
-        self.configure_queue_columns(header)
-        header.grid_rowconfigure(0, weight=1)
-        header_specs = (
-            ("Tệp", "w"),
-            ("Dung lượng", "center"),
-            ("Tiến trình", "center"),
-            ("ETA", "center"),
-            ("Trạng thái", "center"),
-        )
-        for column, (text, anchor) in enumerate(header_specs):
-            ctk.CTkLabel(header, text=text, text_color=COLORS["muted"], font=ctk.CTkFont(size=11, weight="bold"), anchor=anchor).grid(row=0, column=column, padx=12, sticky="nsew")
-
-        self.queue_frame = ctk.CTkScrollableFrame(table, fg_color="transparent")
-        self.queue_frame.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="nsew")
-        self.queue_frame.grid_columnconfigure(0, weight=1)
-
-        self.empty_queue = ctk.CTkLabel(self.queue_frame, text="Chưa chọn tệp nào.", text_color=COLORS["subtle"])
-        self.empty_queue.grid(row=0, column=0, pady=30)
-
-    def configure_queue_columns(self, container):
-        # Dùng chung cấu hình cột để header và từng dòng file thẳng hàng nhau.
-        for index, options in enumerate(QUEUE_COLUMNS):
-            container.grid_columnconfigure(index, weight=options["weight"], minsize=options["minsize"])
-
-    def build_controls(self):
-        # Thanh điều khiển dưới cùng: bắt đầu, tạm dừng/tiếp tục và dừng.
-        controls = ctk.CTkFrame(self, fg_color=COLORS["surface"], corner_radius=0, height=70)
-        controls.grid(row=2, column=0, sticky="ew")
-        controls.grid_columnconfigure(0, weight=1)
-        controls.grid_columnconfigure(1, weight=0)
-        controls.grid_propagate(False)
-
-        inner = ctk.CTkFrame(controls, fg_color="transparent")
-        inner.grid(row=0, column=1, padx=18, pady=14, sticky="e")
-
-        self.status_label = ctk.CTkLabel(controls, text="Sẵn sàng. Thêm tệp và bắt đầu gửi.", text_color=COLORS["muted"], anchor="w")
-        self.status_label.grid(row=0, column=0, padx=22, pady=22, sticky="w")
-
-        self.start_button = ctk.CTkButton(inner, text="Bắt đầu gửi", image=self.icons["start"], command=self.start_upload, height=40, width=140, fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], text_color=COLORS["button_text"], text_color_disabled=COLORS["button_disabled_text"])
-        self.start_button.grid(row=0, column=0, padx=5)
-        self.pause_resume_button = ctk.CTkButton(inner, text="Tạm dừng", image=self.icons["pause"], command=self.pause_resume_upload, height=40, width=140, fg_color=COLORS["surface_3"], hover_color=COLORS["border"], text_color=COLORS["button_text"], text_color_disabled=COLORS["button_disabled_text"], state=ctk.DISABLED)
-        self.pause_resume_button.grid(row=0, column=1, padx=5)
-        self.stop_button = ctk.CTkButton(inner, text="Dừng", image=self.icons["stop"], command=self.stop_upload, height=40, width=110, fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"], text_color=COLORS["button_text"], text_color_disabled=COLORS["button_disabled_text"], state=ctk.DISABLED)
-        self.stop_button.grid(row=0, column=2, padx=5)
-
-    def build_toast(self):
-        # Toast là thông báo nhỏ hiện tạm thời ở góc giao diện.
-        self.toast = ctk.CTkLabel(
-            self,
-            text="",
-            fg_color=COLORS["surface_3"],
-            text_color=COLORS["text"],
-            corner_radius=12,
-            padx=16,
-            height=40,
-        )
-
-    def enable_drag_and_drop(self):
-        # Bật kéo thả file nếu thư viện tkinterdnd2 khả dụng.
-        if not DND_AVAILABLE:
-            return
-        try:
-            self.TkdndVersion = TkinterDnD._require(self)
-            self.drop_target_register(DND_FILES)
-            self.dnd_bind("<<Drop>>", self.handle_drop)
-        except Exception:
-            pass
-
-    def handle_drop(self, event):
-        # Nhận danh sách file được thả vào cửa sổ và thêm vào hàng đợi.
-        files = self.tk.splitlist(event.data)
-        self.add_files(files)
-
-    def show_toast(self, message, kind="info"):
-        # Hiển thị thông báo nhanh với màu theo loại: success, warning, error, info.
-        color = {
-            "info": COLORS["surface_3"],
-            "success": COLORS["success"],
-            "warning": COLORS["warning"],
-            "error": COLORS["danger"],
-        }.get(kind, COLORS["surface_3"])
-
-        def _show():
-            self.toast.configure(text=message, fg_color=color)
-            self.toast.place(relx=1.0, rely=0.0, x=-22, y=84, anchor="ne")
-            self.after(3200, self.toast.place_forget)
-
-        self.after(0, _show)
-
-    def browse_files(self):
-        # Mở hộp thoại chọn một hoặc nhiều file từ máy người dùng.
-        files = filedialog.askopenfilenames(parent=self)
-        if files:
-            self.add_files(files)
-
-    def add_files(self, files):
-        # Thêm file hợp lệ vào hàng đợi, bỏ qua file trùng hoặc không tồn tại.
-        added = 0
-        duplicates = 0
-        for path in files:
-            normalized = os.path.abspath(path)
-            if not os.path.isfile(normalized):
-                continue
-            if normalized in self.file_paths:
-                duplicates += 1
-                continue
-            self.file_paths.append(normalized)
-            self.add_queue_row(normalized)
-            added += 1
-        if added:
-            self.status_label.configure(text=f"Đã thêm {added} tệp vào hàng đợi.")
-            self.show_toast(f"Đã thêm {added} tệp", "success")
-            self.update_ui_state()
-        if duplicates:
-            message = "Tệp đã có trong hàng đợi." if duplicates == 1 else f"{duplicates} tệp đã có trong hàng đợi."
-            self.status_label.configure(text=message)
-            self.show_toast(message, "warning")
-
-    def add_queue_row(self, path):
-        # Tạo một dòng giao diện tương ứng với file vừa được thêm vào hàng đợi.
-        if self.empty_queue.winfo_exists():
-            self.empty_queue.grid_forget()
-
-        row_index = len(self.upload_rows)
-        row = ctk.CTkFrame(self.queue_frame, fg_color=COLORS["surface_2"], corner_radius=10, height=58)
-        row.grid(row=row_index, column=0, pady=5, sticky="ew")
-        row.grid_propagate(False)
-        self.configure_queue_columns(row)
-        row.grid_rowconfigure(0, weight=1)
-
-        name = os.path.basename(path)
-        size = os.path.getsize(path)
-        name_label = ctk.CTkLabel(row, text=name, text_color=COLORS["text"], anchor="w")
-        name_label.grid(row=0, column=0, padx=(14, 12), sticky="nsew")
-        size_label = ctk.CTkLabel(row, text=self.format_bytes(size), text_color=COLORS["muted"], anchor="center")
-        size_label.grid(row=0, column=1, padx=12, sticky="nsew")
-        progress = ctk.CTkProgressBar(row, height=10, fg_color=COLORS["surface_3"], progress_color=COLORS["primary"], corner_radius=6)
-        progress.grid(row=0, column=2, padx=18, sticky="ew")
-        progress.set(0)
-        eta = ctk.CTkLabel(row, text="--", text_color=COLORS["muted"], anchor="center")
-        eta.grid(row=0, column=3, padx=12, sticky="nsew")
-        state = ctk.CTkLabel(row, text="Đang chờ", width=118, text_color=COLORS["muted"], fg_color=COLORS["surface_3"], corner_radius=12, padx=10, height=28)
-        state.grid(row=0, column=4, padx=(12, 14), sticky="")
-
-        self.upload_rows[path] = {
-            "row": row,
-            "name": name_label,
-            "size": size_label,
-            "progress": progress,
-            "eta": eta,
-            "state": state,
-        }
-        self.file_states[path] = "Đang chờ"
-
-    def clear_completed(self):
-        # Xóa khỏi bảng các file đã hoàn tất, lỗi hoặc đã bỏ qua.
-        for path, widgets in list(self.upload_rows.items()):
-            state = self.file_states.get(path, widgets["state"].cget("text"))
-            if state in ("Hoàn tất", "Đã xác minh", "Lỗi", "Đã bỏ qua"):
-                widgets["row"].destroy()
-                del self.upload_rows[path]
-                self.file_states.pop(path, None)
-                if path in self.file_paths:
-                    self.file_paths.remove(path)
-        if not self.upload_rows:
-            self.empty_queue.grid(row=0, column=0, pady=30)
-        self.status_label.configure(text="Đã xóa các mục hoàn tất.")
-
-    def retry_failed(self):
-        # Đưa các file lỗi/dừng về trạng thái chờ để gửi lại.
-        if self.upload_state != "stopped":
-            return
-        retry_paths = [path for path in self.file_paths if self.file_states.get(path) in ("Lỗi", "Đã dừng")]
-        if not retry_paths:
-            self.show_toast("Không có tệp lỗi để gửi lại", "info")
-            return
-        for path in retry_paths:
-            self.update_row(path, progress=0, eta="--", state="Đang chờ", state_color=COLORS["surface_3"])
-        self.refresh_stats()
-        self.start_upload()
-
-    def update_row(self, path, progress=None, eta=None, state=None, state_color=None):
-        # Cập nhật một dòng trong bảng hàng đợi từ thread upload thông qua after().
-        if path not in self.upload_rows:
-            return
-        if state is not None:
-            self.file_states[path] = state
-
-        def _update():
-            widgets = self.upload_rows.get(path)
-            if not widgets:
-                return
-            if progress is not None:
-                widgets["progress"].set(progress)
-            if eta is not None:
-                widgets["eta"].configure(text=eta)
-            if state is not None:
-                widgets["state"].configure(text=state, text_color=COLORS["text"], fg_color=state_color or COLORS["surface_3"])
-
-        self.after(0, _update)
-
-    def reset_progress(self):
-        # Đưa các thanh tiến trình và nhãn thống kê về trạng thái ban đầu.
-        self.progress_bar.set(0)
-        self.progress_label.configure(text="0.00% | 0 B / 0 B")
-        self.speed_label.configure(text="Tốc độ: 0.00 MB/s")
-        self.eta_label.configure(text="ETA: --")
-        self.speed_value.configure(text="0.00 MB/s")
-        self.eta_value.configure(text="--")
-        self.current_file_label.configure(text="Chưa có tệp nào đang gửi")
-        self.total_progress_bar.set(0)
-        self.total_progress_label.configure(text="Tổng: 0.00% | 0 B / 0 B")
-
-    def update_ui_state(self):
-        # Bật/tắt các nút dựa trên trạng thái hiện tại của phiên upload.
-        has_files = bool(self.file_paths)
-        if self.upload_state == "stopped":
-            self.start_button.configure(state=ctk.NORMAL if has_files else ctk.DISABLED)
-            self.pause_resume_button.configure(state=ctk.DISABLED, text="Tạm dừng", image=self.icons["pause"])
-            self.stop_button.configure(state=ctk.DISABLED)
-            self.browse_button.configure(state=ctk.NORMAL)
-            self.save_settings_button.configure(state=ctk.NORMAL)
-            self.check_connection_button.configure(state=ctk.NORMAL)
-            self.speed_limit_menu.configure(state=ctk.NORMAL)
-            self.retry_button.configure(state=ctk.NORMAL)
-            self.state_chip.configure(text="SẴN SÀNG", fg_color=COLORS["surface_3"], text_color=COLORS["muted"])
-            self.apply_connection_status(self.server_available)
-        elif self.upload_state == "uploading":
-            self.start_button.configure(state=ctk.DISABLED)
-            self.pause_resume_button.configure(state=ctk.NORMAL, text="Tạm dừng", image=self.icons["pause"])
-            self.stop_button.configure(state=ctk.NORMAL)
-            self.browse_button.configure(state=ctk.DISABLED)
-            self.save_settings_button.configure(state=ctk.DISABLED)
-            self.check_connection_button.configure(state=ctk.DISABLED)
-            self.speed_limit_menu.configure(state=ctk.DISABLED)
-            self.retry_button.configure(state=ctk.DISABLED)
-            self.state_chip.configure(text="ĐANG GỬI", fg_color=COLORS["primary"], text_color="white")
-            self.connection_pill.configure(text="ĐÃ KẾT NỐI", fg_color=COLORS["success"], text_color="white")
-        elif self.upload_state == "paused":
-            self.start_button.configure(state=ctk.DISABLED)
-            self.pause_resume_button.configure(state=ctk.NORMAL, text="Tiếp tục", image=self.icons["resume"])
-            self.stop_button.configure(state=ctk.NORMAL)
-            self.check_connection_button.configure(state=ctk.DISABLED)
-            self.speed_limit_menu.configure(state=ctk.DISABLED)
-            self.retry_button.configure(state=ctk.DISABLED)
-            self.state_chip.configure(text="TẠM DỪNG", fg_color=COLORS["warning"], text_color=COLORS["bg"])
-
-    def apply_connection_status(self, is_available):
-        self.server_available = is_available
-        if self.upload_state != "stopped":
-            return
-        if is_available:
-            self.connection_pill.configure(text="SERVER SẴN SÀNG", fg_color=COLORS["success"], text_color="white")
-        else:
-            self.connection_pill.configure(text="CHƯA KẾT NỐI", fg_color=COLORS["surface_3"], text_color=COLORS["muted"])
-
-    def check_server_connection(self, silent=True):
-        if self.connection_check_in_progress or self.upload_state != "stopped":
-            return
-        server_ip = self.ip_entry.get().strip()
-        try:
-            server_port = int(self.port_entry.get().strip())
-        except ValueError:
-            self.apply_connection_status(False)
-            if not silent:
-                self.status_label.configure(text="Port máy chủ phải là số.")
-            return
-        self.connection_check_in_progress = True
-        if not silent:
-            self.status_label.configure(text=f"Đang kiểm tra {server_ip}:{server_port}...")
-        threading.Thread(target=self._check_server_connection_worker, args=(server_ip, server_port, silent), daemon=True).start()
-
-    def _check_server_connection_worker(self, server_ip, server_port, silent):
-        is_available = False
-        try:
-            with socket.create_connection((server_ip, server_port), timeout=0.8) as probe:
-                probe.settimeout(0.8)
-                probe.sendall(b"P")
-                is_available = probe.recv(2) == b"OK"
-        except Exception:
-            is_available = False
-
-        def _finish():
-            self.connection_check_in_progress = False
-            self.apply_connection_status(is_available)
-            if not silent:
-                if is_available:
-                    self.status_label.configure(text=f"Đã kết nối được máy chủ {server_ip}:{server_port}.")
-                    self.show_toast("Máy chủ sẵn sàng", "success")
-                else:
-                    self.status_label.configure(text=f"Chưa kết nối được máy chủ {server_ip}:{server_port}.")
-                    self.show_toast("Chưa kết nối được máy chủ", "warning")
-
-        self.after(0, _finish)
-
-    def schedule_connection_check(self):
-        if self.is_closing:
-            return
-        if self.upload_state == "stopped" and not self.connection_check_in_progress:
-            self.check_server_connection(silent=True)
-        self.after(2500, self.schedule_connection_check)
-
-    def start_upload(self):
-        # Kiểm tra dữ liệu nhập và tạo thread nền để không làm treo giao diện.
-        if not self.file_paths:
-            messagebox.showerror("Chưa có tệp", "Vui lòng thêm ít nhất một tệp.", parent=self)
-            return
-        try:
-            server_port = int(self.port_entry.get())
-        except ValueError:
-            messagebox.showerror("Port không hợp lệ", "Port máy chủ phải là số.", parent=self)
-            return
-
-        self.current_upload_settings = {
-            "server_ip": self.ip_entry.get().strip(),
-            "server_port": server_port,
-            "target_dir": self.server_folder_entry.get().strip(),
-            "duplicate_policy": DUPLICATE_POLICIES.get(self.duplicate_policy_menu.get(), "R"),
-            "speed_limit": self.get_speed_limit_bytes(),
-        }
-        self.save_config(silent=True)
-        self.upload_state = "uploading"
-        self.update_ui_state()
-        self.upload_thread = threading.Thread(target=self.upload_queue_thread, daemon=True)
-        self.upload_thread.start()
-
-    def pause_resume_upload(self):
-        # Chuyển qua lại giữa trạng thái đang gửi và tạm dừng.
-        if self.upload_state == "uploading":
-            self.upload_state = "paused"
-            self.status_label.configure(text="Đã tạm dừng gửi tệp.")
-            self.show_toast("Đã tạm dừng gửi tệp", "warning")
-        elif self.upload_state == "paused":
-            self.upload_state = "uploading"
-            self.status_label.configure(text="Đang tiếp tục gửi tệp...")
-            self.show_toast("Đang tiếp tục gửi tệp", "info")
-        self.update_ui_state()
-
-    def stop_upload(self):
-        # Dừng phiên gửi hiện tại và đóng socket để server ngừng nhận file.
-        if self.upload_state in ("uploading", "paused"):
-            self.upload_state = "stopped"
-            if self.client_socket:
-                try:
-                    self.client_socket.close()
-                except Exception:
-                    pass
-            self.status_label.configure(text="Người dùng đã dừng phiên gửi.")
-            self.show_toast("Đã dừng phiên gửi", "warning")
-            self.update_ui_state()
-
-    def on_closing(self):
-        # Khi đóng cửa sổ, dừng upload và lưu lại cấu hình hiện tại.
-        self.is_closing = True
-        self.stop_upload()
-        self.save_config(silent=True)
-        self.destroy()
-
-    def save_config(self, silent=False):
-        # Lưu cấu hình client vào file JSON để lần sau mở app dùng lại.
-        config = {
-            "server_ip": self.ip_entry.get(),
-            "server_port": self.port_entry.get(),
-            "server_folder": self.server_folder_entry.get(),
-            "duplicate_policy": self.duplicate_policy_menu.get(),
-            "speed_limit": self.speed_limit_menu.get(),
-        }
-        try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2)
-            if not silent:
-                self.status_label.configure(text="Đã lưu cài đặt.")
-                self.show_toast("Đã lưu cài đặt", "success")
-        except Exception as e:
-            self.status_label.configure(text=f"Lỗi khi lưu cài đặt: {e}")
-
-    def load_config(self):
-        # Đọc cấu hình client từ JSON; nếu chưa có thì dùng giá trị mặc định.
-        defaults = {"server_ip": "127.0.0.1", "server_port": "8888", "server_folder": "", "duplicate_policy": "Tiếp tục nếu còn thiếu", "speed_limit": "5 MB/s"}
-        try:
-            if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    defaults.update(json.load(f))
-        except Exception as e:
-            self.status_label.configure(text=f"Lỗi khi tải cài đặt: {e}")
-
-        self.ip_entry.insert(0, defaults["server_ip"])
-        self.port_entry.insert(0, defaults["server_port"])
-        self.server_folder_entry.insert(0, defaults["server_folder"])
-        self.duplicate_policy_menu.set(defaults.get("duplicate_policy", "Tiếp tục nếu còn thiếu"))
-        self.speed_limit_menu.set(defaults.get("speed_limit", "5 MB/s"))
-
-    def upload_queue_thread(self):
-        # Thread nền duyệt lần lượt các file chưa hoàn tất trong hàng đợi.
-        pending_paths = [path for path in self.file_paths if self.file_states.get(path) not in ("Hoàn tất", "Đã xác minh", "Đã bỏ qua")]
-        self.queue_total_bytes = sum(os.path.getsize(path) for path in pending_paths if os.path.exists(path))
-        self.queue_done_bytes = 0
-        self.update_total_progress(0)
-
-        for path in pending_paths:
-            # Nếu người dùng bấm Stop thì dừng duyệt hàng đợi.
-            if self.upload_state == "stopped":
-                break
-            current_state = self.file_states.get(path)
-            if current_state in ("Hoàn tất", "Đã xác minh", "Đã bỏ qua"):
-                continue
-            self.current_file = path
-            self.upload_single_file(path)
-
-        if self.upload_state != "stopped":
-            self.upload_state = "stopped"
-            self.after(0, self.update_ui_state)
-            self.after(0, lambda: self.status_label.configure(text="Đã gửi xong hàng đợi."))
-            self.show_toast("Đã gửi xong hàng đợi", "success")
-
-    def update_total_progress(self, current_file_bytes=0):
-        # Cập nhật thanh tiến trình tổng bằng số byte đã xong cộng với file đang gửi.
-        total_done = min(self.queue_done_bytes + current_file_bytes, self.queue_total_bytes)
-        progress = total_done / self.queue_total_bytes if self.queue_total_bytes else 0
-        text = f"Tổng: {progress:.2%} | {self.format_bytes(total_done)} / {self.format_bytes(self.queue_total_bytes)}"
-        self.after(0, lambda p=progress: self.total_progress_bar.set(p))
-        self.after(0, lambda value=text: self.total_progress_label.configure(text=value))
-
-    def calculate_file_hash(self, file_path):
-        digest = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            while True:
-                chunk = f.read(1024 * 1024)
-                if not chunk:
-                    break
-                digest.update(chunk)
-        return digest.digest()
-
-    def get_speed_limit_bytes(self):
-        return SPEED_LIMITS.get(self.speed_limit_menu.get(), 0)
-
-    def throttle_upload_speed(self, session_start_time, bytes_sent_in_session, speed_limit):
-        if speed_limit <= 0:
-            return
-        expected_elapsed = bytes_sent_in_session / speed_limit
-        while self.upload_state == "uploading":
-            actual_elapsed = time.time() - session_start_time
-            sleep_time = expected_elapsed - actual_elapsed
-            if sleep_time <= 0:
-                return
-            time.sleep(min(sleep_time, 0.05))
-
-    def upload_single_file(self, file_path):
-        # Gửi một file duy nhất tới server theo cấu hình hiện tại.
-        settings = self.current_upload_settings or {
-            "server_ip": self.ip_entry.get().strip(),
-            "server_port": int(self.port_entry.get()),
-            "target_dir": self.server_folder_entry.get().strip(),
-            "duplicate_policy": DUPLICATE_POLICIES.get(self.duplicate_policy_menu.get(), "R"),
-            "speed_limit": self.get_speed_limit_bytes(),
-        }
-        server_ip = settings["server_ip"]
-        server_port = settings["server_port"]
-        file_name = os.path.basename(file_path)
-        file_size = os.path.getsize(file_path)
-        target_dir = settings["target_dir"]
-        duplicate_policy = settings["duplicate_policy"]
-        speed_limit = settings["speed_limit"]
-
-        self.after(0, lambda: self.current_file_label.configure(text=file_name))
-        self.update_row(file_path, state="Đang kết nối", state_color=COLORS["warning"])
-
-        try:
-            self.after(0, lambda: self.status_label.configure(text=f"Đang kiểm tra toàn vẹn: {file_name}"))
-            self.update_row(file_path, state="Đang kiểm tra", state_color=COLORS["warning"])
-            file_hash = self.calculate_file_hash(file_path)
-            if self.upload_state == "stopped":
-                self.update_row(file_path, state="Đã dừng", state_color=COLORS["warning"])
-                return
-
-            # Mở kết nối TCP tới server.
-            self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.client_socket.connect((server_ip, server_port))
-            self.after(0, lambda: self.status_label.configure(text=f"Đang gửi {file_name} tới {server_ip}:{server_port}"))
-            self.update_row(file_path, state="Đang gửi", state_color=COLORS["primary"])
-
-            self.client_socket.sendall(b"U")
-
-            # Gửi header gồm thư mục đích, tên file, kích thước và duplicate policy.
-            dir_name_bytes = target_dir.encode()
-            self.client_socket.sendall(struct.pack("!I", len(dir_name_bytes)))
-            self.client_socket.sendall(dir_name_bytes)
-
-            file_name_bytes = file_name.encode()
-            self.client_socket.sendall(struct.pack("!I", len(file_name_bytes)))
-            self.client_socket.sendall(file_name_bytes)
-            self.client_socket.sendall(struct.pack("!Q", file_size))
-            self.client_socket.sendall(duplicate_policy.encode())
-            self.client_socket.sendall(file_hash)
-
-            # Server trả offset để client biết gửi từ đầu, gửi tiếp, hoặc bỏ qua.
-            offset_data = self.recv_exact(self.client_socket, 8)
-            offset = struct.unpack("!Q", offset_data)[0]
-            if offset == SERVER_ERROR_OFFSET:
-                raise RuntimeError("Máy chủ không đủ dung lượng để nhận tệp này.")
-
-            if offset >= file_size:
-                verify_status = self.recv_exact(self.client_socket, 1)
-                if verify_status == SERVER_VERIFY_FAILED:
-                    raise RuntimeError("Tệp trên máy chủ đã tồn tại nhưng checksum không khớp.")
-                self.completed_count += 1
-                self.update_row(file_path, progress=1, eta="0s", state="Đã bỏ qua", state_color=COLORS["success"])
-                self.queue_done_bytes += file_size
-                self.update_total_progress(0)
-                self.refresh_stats()
-                return
-
-            # Mở file local và gửi dữ liệu từ offset đã nhận.
-            with open(file_path, "rb") as f:
-                f.seek(offset)
-                sent_bytes = offset
-                session_sent_bytes = 0
-                session_start_time = time.time()
-                last_update_time = time.time()
-                last_sample_bytes = sent_bytes
-                speed_mb = 0.0
-                chunk_size = 16384 if speed_limit > 0 else 65536
-
-                while sent_bytes < file_size and self.upload_state != "stopped":
-                    # Khi tạm dừng, giữ kết nối nhưng chưa đọc/gửi chunk tiếp theo.
-                    while self.upload_state == "paused":
-                        self.update_row(file_path, state="Tạm dừng", state_color=COLORS["warning"])
-                        time.sleep(0.1)
-                        last_update_time = time.time()
-                        last_sample_bytes = sent_bytes
-                        if self.upload_state == "stopped":
-                            break
-                    if self.upload_state == "stopped":
-                        break
-
-                    data = f.read(chunk_size)
-                    if not data:
-                        break
-
-                    # Gửi chunk dữ liệu qua socket.
-                    self.client_socket.sendall(data)
-                    sent_bytes += len(data)
-                    session_sent_bytes += len(data)
-                    self.total_uploaded_bytes += len(data)
-                    self.throttle_upload_speed(session_start_time, session_sent_bytes, speed_limit)
-
-                    # Giới hạn tần suất cập nhật UI để giao diện không bị quá tải.
-                    now = time.time()
-                    elapsed = now - last_update_time
-                    if elapsed >= 0.35 or sent_bytes == file_size:
-                        bytes_delta = sent_bytes - last_sample_bytes
-                        instant_speed = bytes_delta / elapsed if elapsed > 0 else 0
-                        speed_mb = instant_speed / (1024 * 1024)
-                        remaining = max(file_size - sent_bytes, 0)
-                        eta_seconds = int(remaining / instant_speed) if instant_speed > 0 else None
-                        progress = sent_bytes / file_size if file_size else 1
-                        eta_text = self.format_duration(eta_seconds)
-                        progress_text = f"{progress:.2%} | {self.format_bytes(sent_bytes)} / {self.format_bytes(file_size)}"
-
-                        self.after(0, lambda p=progress: self.progress_bar.set(p))
-                        self.after(0, lambda text=progress_text: self.progress_label.configure(text=text))
-                        self.after(0, lambda s=speed_mb: self.speed_label.configure(text=f"Tốc độ: {s:.2f} MB/s"))
-                        self.after(0, lambda e=eta_text: self.eta_label.configure(text=f"ETA: {e}"))
-                        self.after(0, lambda s=speed_mb: self.speed_value.configure(text=f"{s:.2f} MB/s"))
-                        self.after(0, lambda e=eta_text: self.eta_value.configure(text=e))
-                        self.update_total_progress(sent_bytes)
-                        self.update_row(file_path, progress=progress, eta=eta_text, state="Đang gửi", state_color=COLORS["primary"])
-
-                        last_update_time = now
-                        last_sample_bytes = sent_bytes
-
-            if self.upload_state == "stopped":
-                self.update_row(file_path, state="Đã dừng", state_color=COLORS["warning"])
-            else:
-                self.after(0, lambda: self.status_label.configure(text=f"Đang xác minh trên máy chủ: {file_name}"))
-                self.update_row(file_path, state="Đang xác minh", state_color=COLORS["warning"])
-                verify_status = self.recv_exact(self.client_socket, 1)
-                if verify_status == SERVER_VERIFY_FAILED:
-                    raise RuntimeError("Checksum không khớp sau khi upload. File nhận có thể bị lỗi.")
-                if verify_status not in (SERVER_VERIFY_OK, SERVER_VERIFY_SKIPPED):
-                    raise RuntimeError("Máy chủ trả về kết quả xác minh không hợp lệ.")
-                self.completed_count += 1
-                self.update_row(file_path, progress=1, eta="0s", state="Đã xác minh", state_color=COLORS["success"])
-                self.queue_done_bytes += file_size
-                self.update_total_progress(0)
-                self.after(0, lambda: self.status_label.configure(text=f"Hoàn tất: {file_name}"))
-                self.show_toast(f"Đã gửi xong {file_name}", "success")
-
-        except (ConnectionRefusedError, socket.gaierror):
-            # Trường hợp không kết nối được tới server hoặc sai địa chỉ.
-            self.failed_count += 1
-            self.update_row(file_path, state="Lỗi", state_color=COLORS["danger"])
-            self.show_toast("Kết nối thất bại", "error")
-            self.after(0, lambda: messagebox.showerror("Lỗi kết nối", f"Không thể kết nối tới {server_ip}:{server_port}.", parent=self))
-            self.upload_state = "stopped"
-        except Exception as e:
-            # Các lỗi còn lại khi gửi file: mất kết nối, lỗi đọc file, lỗi protocol...
-            if self.upload_state != "stopped":
-                self.failed_count += 1
-                self.update_row(file_path, state="Lỗi", state_color=COLORS["danger"])
-                self.show_toast("Gửi tệp thất bại", "error")
-                self.after(0, lambda err=e: messagebox.showerror("Lỗi gửi tệp", f"Đã xảy ra lỗi: {err}", parent=self))
-                self.upload_state = "stopped"
-        finally:
-            # Luôn đóng socket sau khi xử lý xong file để tránh rò rỉ kết nối.
-            if self.client_socket:
-                try:
-                    self.client_socket.close()
-                except Exception:
-                    pass
-                self.client_socket = None
-            self.refresh_stats()
-            if self.upload_state == "stopped":
-                self.after(0, self.update_ui_state)
-
-    def recv_exact(self, sock, size):
-        # Đọc đúng số byte từ server, dùng khi nhận offset hoặc dữ liệu protocol.
-        chunks = []
-        received = 0
-        while received < size:
-            chunk = sock.recv(size - received)
-            if not chunk:
-                raise ConnectionError("Kết nối bị đóng khi đang đọc dữ liệu từ server.")
-            chunks.append(chunk)
-            received += len(chunk)
-        return b"".join(chunks)
-
-    def refresh_stats(self):
-        # Đếm lại số file hoàn tất và lỗi để cập nhật sidebar.
-        done = sum(1 for state in self.file_states.values() if state in ("Hoàn tất", "Đã xác minh", "Đã bỏ qua"))
-        failed = sum(1 for state in self.file_states.values() if state == "Lỗi")
-        self.after(0, lambda: self.done_value.configure(text=f"{done} tệp"))
-        self.after(0, lambda: self.failed_value.configure(text=f"{failed} tệp"))
-
-    def format_bytes(self, value):
-        # Định dạng dung lượng byte thành chuỗi dễ đọc.
-        value = float(value)
-        for unit in ("B", "KB", "MB", "GB", "TB"):
-            if value < 1024 or unit == "TB":
-                return f"{value:.0f} {unit}" if unit == "B" else f"{value:.2f} {unit}"
-            value /= 1024
-
-    def format_duration(self, seconds):
-        # Định dạng thời gian còn lại cho cột ETA.
-        if seconds is None:
-            return "--"
-        if seconds < 60:
-            return f"{seconds}s"
-        minutes, seconds = divmod(seconds, 60)
-        if minutes < 60:
-            return f"{minutes}m {seconds}s"
-        hours, minutes = divmod(minutes, 60)
-        return f"{hours}h {minutes}m"
-
-
+        self.setWindowTitle("UPLOWER - User Portal")
+        self.resize(1450, 840)
+        self.setMinimumSize(1100, 720)
+        self.current_btn = None
+
+        self.setStyleSheet(f"""
+        QWidget {{
+            background:{BG};
+            color:{TEXT};
+            font-family:Segoe UI, Arial;
+            font-size:15px;
+        }}
+        QLabel {{ border:none; background:transparent; }}
+        """)
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self.sidebar = self.create_sidebar()
+        self.stack = QStackedWidget()
+
+        pages = [
+            self.dashboard(),
+            UploadUI(),
+            self.my_files(),
+            self.statistics(),
+            self.simple_page("Hồ Sơ", "Thông tin tài khoản người dùng"),
+            self.simple_page("Settings", "Cài đặt hệ thống"),
+        ]
+        for page in pages:
+            self.stack.addWidget(page)
+
+        root.addWidget(self.sidebar)
+        root.addWidget(self.stack)
+        self.set_active(self.btn_dashboard, 0)
+
+    def create_sidebar(self):
+        side = QFrame()
+        side.setFixedWidth(320)
+        side.setStyleSheet(f"""
+        QFrame {{ background:{SIDEBAR}; border-right:1px solid {BORDER}; }}
+        """)
+        layout = QVBoxLayout(side)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        logo_row = QHBoxLayout()
+        logo = QLabel("☁")
+        logo.setAlignment(Qt.AlignCenter)
+        logo.setFixedSize(52, 52)
+        logo.setStyleSheet(f"""
+        background:{GRADIENT}; border-radius:18px; font-size:25px; font-weight:bold;
+        """)
+        text_box = QVBoxLayout()
+        title = QLabel("UPLOWER")
+        title.setStyleSheet("font-size:25px; font-weight:900; color:#e879f9;")
+        sub = QLabel("User Portal")
+        sub.setStyleSheet(f"color:{TEXT2}; font-size:14px;")
+        text_box.addWidget(title)
+        text_box.addWidget(sub)
+        logo_row.addWidget(logo)
+        logo_row.addLayout(text_box)
+        logo_row.addStretch()
+        layout.addLayout(logo_row)
+        layout.addSpacing(25)
+
+        self.btn_dashboard = self.nav_button("⌂", "Dashboard")
+        self.btn_upload = self.nav_button("⇧", "Upload Files")
+        self.btn_myfiles = self.nav_button("▤", "My Files")
+        self.btn_statistics = self.nav_button("▥", "Statistics")
+        self.btn_profile = self.nav_button("♡", "Hồ Sơ")
+        self.btn_settings = self.nav_button("⚙", "Settings")
+
+        buttons = [
+            (self.btn_dashboard, 0),
+            (self.btn_upload, 1),
+            (self.btn_myfiles, 2),
+            (self.btn_statistics, 3),
+            (self.btn_profile, 4),
+            (self.btn_settings, 5),
+        ]
+        for btn, index in buttons:
+            btn.clicked.connect(lambda checked, b=btn, i=index: self.set_active(b, i))
+            layout.addWidget(btn)
+
+        layout.addStretch()
+        logout = self.nav_button("↪", "Logout")
+        logout.clicked.connect(self.logout)
+        layout.addWidget(logout)
+        return side
+
+    def nav_button(self, icon, text):
+        btn = QPushButton(f"{icon}   {text}")
+        btn.setFixedHeight(62)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(self.nav_normal_style())
+        return btn
+
+    def nav_normal_style(self):
+        return f"""
+        QPushButton {{
+            background:transparent; color:{TEXT2}; border:none; border-radius:14px;
+            text-align:left; padding-left:22px; font-size:18px; font-weight:bold;
+        }}
+        QPushButton:hover {{ background:#1f1238; color:white; }}
+        """
+
+    def nav_active_style(self):
+        return f"""
+        QPushButton {{
+            background:#30174f; color:#d18cff; border:1px solid {PRIMARY}; border-radius:14px;
+            text-align:left; padding-left:22px; font-size:18px; font-weight:bold;
+        }}
+        """
+
+    def set_active(self, btn, index):
+        if self.current_btn:
+            self.current_btn.setStyleSheet(self.nav_normal_style())
+        btn.setStyleSheet(self.nav_active_style())
+        self.current_btn = btn
+        self.stack.setCurrentIndex(index)
+
+    def page_base(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(40, 35, 40, 35)
+        layout.setSpacing(28)
+        scroll.setWidget(content)
+        return scroll, layout
+
+    def topbar(self, title, subtitle):
+        row = QHBoxLayout()
+        left = QVBoxLayout()
+        h = QLabel(title)
+        h.setStyleSheet("font-size:36px; font-weight:900; border:none;")
+        p = QLabel(subtitle)
+        p.setStyleSheet("font-size:20px; color:#b5c7e8; border:none;")
+        left.addWidget(h)
+        left.addWidget(p)
+        search = QLineEdit()
+        search.setPlaceholderText("⌕  Search...")
+        search.setFixedSize(320, 52)
+        search.setStyleSheet(self.input_style())
+        bell = QPushButton("♧")
+        bell.setFixedSize(54, 54)
+        bell.setStyleSheet(self.icon_btn())
+        user = QPushButton("♙")
+        user.setFixedSize(62, 62)
+        user.setStyleSheet(f"""
+        QPushButton {{ background:{GRADIENT}; border:none; border-radius:20px; font-size:28px; font-weight:bold; }}
+        """)
+        row.addLayout(left)
+        row.addStretch()
+        row.addWidget(search)
+        row.addWidget(bell)
+        row.addWidget(user)
+        return row
+
+    def dashboard(self):
+        page, layout = self.page_base()
+        layout.addLayout(self.topbar("Dashboard", "Theo dõi hoạt động upload file của bạn"))
+        grid = QHBoxLayout(); grid.setSpacing(30)
+        grid.addWidget(self.stat_card("⇧", "0", "Total Uploads", "+0%"))
+        grid.addWidget(self.stat_card("✓", "0%", "Success Rate", "+0%"))
+        grid.addWidget(self.stat_card("▤", "0 MB", "Storage Used", "+0 MB"))
+        grid.addWidget(self.stat_card("□", "0", "Active Files", "+0%"))
+        layout.addLayout(grid)
+        body = QHBoxLayout(); body.setSpacing(30)
+        body.addWidget(self.empty_card("Upload Activity", "Chưa có dữ liệu upload"), 1)
+        body.addWidget(self.storage_card(), 1)
+        layout.addLayout(body)
+        layout.addStretch()
+        return page
+
+    def my_files(self):
+        page, layout = self.page_base()
+        layout.addLayout(self.topbar("My Files", "Manage and organize your uploaded files"))
+        table = QTableWidget()
+        table.setColumnCount(6)
+        table.setHorizontalHeaderLabels(["Name", "Type", "Size", "Uploaded", "Status", "Actions"])
+        table.setRowCount(0)
+        table.verticalHeader().setVisible(False)
+        table.setShowGrid(False)
+        table.setMinimumHeight(360)
+        table.setStyleSheet(self.table_style())
+        table.horizontalHeader().setStretchLastSection(True)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        layout.addWidget(table)
+        empty = QLabel("Chưa có file nào được upload")
+        empty.setAlignment(Qt.AlignCenter)
+        empty.setStyleSheet("color:#94a3b8; font-size:18px; padding:40px; border:none; background:transparent;")
+        layout.addWidget(empty)
+        return page
+
+    def statistics(self):
+        page, layout = self.page_base()
+        layout.addLayout(self.topbar("Statistics", "View your upload and storage statistics"))
+        grid = QHBoxLayout(); grid.setSpacing(30)
+        grid.addWidget(self.stat_card("⇧", "0", "Total Uploads", "+0%"))
+        grid.addWidget(self.stat_card("⇩", "0", "Total Downloads", "+0%"))
+        grid.addWidget(self.stat_card("▰", "0 MB", "Storage Used", "+0 MB"))
+        grid.addWidget(self.stat_card("⌁", "0 MB/s", "Avg Upload Speed", "+0 MB/s"))
+        layout.addLayout(grid)
+        body = QHBoxLayout(); body.setSpacing(30)
+        body.addWidget(self.empty_card("Upload Trend (30 Days)", "Chưa có dữ liệu thống kê"), 1)
+        body.addWidget(self.empty_card("File Type Distribution", "Chưa có dữ liệu phân loại file"), 1)
+        layout.addLayout(body)
+        return page
+
+    def simple_page(self, title, subtitle):
+        page, layout = self.page_base()
+        layout.addLayout(self.topbar(title, subtitle))
+        layout.addWidget(self.empty_card(title, "Nội dung sẽ bổ sung sau"))
+        layout.addStretch()
+        return page
+
+    def stat_card(self, icon, value, label, change):
+        card = QFrame(); card.setFixedHeight(210); card.setStyleSheet(self.card_style())
+        box = QVBoxLayout(card); box.setContentsMargins(30, 26, 30, 24); box.setSpacing(10)
+        top = QHBoxLayout()
+        icon_box = QLabel(icon); icon_box.setAlignment(Qt.AlignCenter); icon_box.setFixedSize(60, 60)
+        icon_box.setStyleSheet("background:#321750; color:#c084fc; border-radius:16px; font-size:30px; border:none;")
+        ch = QLabel(change); ch.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        ch.setStyleSheet(f"color:{GREEN if '-' not in change else RED}; font-size:16px; font-weight:bold; border:none; background:transparent;")
+        top.addWidget(icon_box); top.addStretch(); top.addWidget(ch)
+        num = QLabel(value); num.setStyleSheet("font-size:32px; font-weight:900; color:white; border:none; background:transparent;")
+        name = QLabel(label); name.setStyleSheet("font-size:17px; color:#b5c7e8; border:none; background:transparent;")
+        box.addLayout(top); box.addStretch(); box.addWidget(num); box.addWidget(name)
+        return card
+
+    def storage_card(self):
+        card = QFrame(); card.setMinimumHeight(410); card.setStyleSheet(self.card_style())
+        box = QVBoxLayout(card); box.setContentsMargins(30, 28, 30, 28)
+        title = QLabel("Storage Usage"); title.setStyleSheet("font-size:24px; font-weight:900; border:none; background:transparent;")
+        circle = QLabel("0%\nUsed"); circle.setAlignment(Qt.AlignCenter); circle.setFixedSize(190, 190)
+        circle.setStyleSheet("QLabel { border:14px solid #334155; border-radius:95px; font-size:24px; font-weight:800; color:white; background:transparent; }")
+        desc = QLabel("0 MB of 0 MB used"); desc.setAlignment(Qt.AlignCenter)
+        desc.setStyleSheet("font-size:16px; color:#b5c7e8; border:none; background:transparent;")
+        box.addWidget(title); box.addStretch(); box.addWidget(circle, alignment=Qt.AlignCenter); box.addWidget(desc); box.addStretch()
+        return card
+
+    def empty_card(self, title, message):
+        card = QFrame(); card.setMinimumHeight(410); card.setStyleSheet(self.card_style())
+        box = QVBoxLayout(card); box.setContentsMargins(30, 28, 30, 28)
+        t = QLabel(title); t.setStyleSheet("font-size:24px; font-weight:900; border:none; background:transparent;")
+        msg = QLabel(message); msg.setAlignment(Qt.AlignCenter); msg.setStyleSheet("color:#94a3b8; font-size:18px; border:none; background:transparent;")
+        box.addWidget(t); box.addStretch(); box.addWidget(msg); box.addStretch()
+        return card
+
+    def card_style(self):
+        return f"QFrame {{ background:{CARD}; border:1px solid {BORDER}; border-radius:18px; }}"
+
+    def input_style(self):
+        return f"QLineEdit {{ background:{CARD}; color:{TEXT}; border:1px solid #334155; border-radius:14px; padding-left:16px; font-size:18px; }}"
+
+    def icon_btn(self):
+        return f"""
+        QPushButton {{ background:{CARD}; color:white; border:1px solid #334155; border-radius:14px; font-size:25px; }}
+        QPushButton:hover {{ border:1px solid {PRIMARY}; }}
+        """
+
+    def table_style(self):
+        return f"""
+        QTableWidget {{ background:{CARD}; border:1px solid {BORDER}; border-radius:18px; color:white; font-size:17px; }}
+        QHeaderView::section {{ background:#13162a; color:#b5c7e8; border:none; padding:14px; font-size:18px; font-weight:bold; }}
+        QTableWidget::item {{ border-bottom:1px solid #1f2937; padding:12px; }}
+        """
+
+    def logout(self):
+        from auth.login_ui import LoginUI
+        self.login_window = LoginUI()
+        self.login_window.show()
+        self.close()
