@@ -31,10 +31,41 @@ DUPLICATE_POLICIES = {
 }
 
 
+class DropArea(QFrame):
+    file_dropped = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event):
+        mime = event.mimeData()
+        if mime.hasUrls() and any(url.isLocalFile() for url in mime.urls()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        local_files = [
+            url.toLocalFile()
+            for url in event.mimeData().urls()
+            if url.isLocalFile()
+        ]
+        if local_files:
+            self.file_dropped.emit(local_files[0])
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+
 class UploadUI(QWidget):
     progress_signal = pyqtSignal(int, str)
     status_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, str)
+    server_status_signal = pyqtSignal(bool, str)
 
     def __init__(self, current_user=None):
         super().__init__()
@@ -50,12 +81,15 @@ class UploadUI(QWidget):
         self.last_upload_file_path = ""
         self.last_upload_file_size = 0
 
+        self.setAcceptDrops(True)
         self.setStyleSheet(PAGE_STYLE)
         self.build_ui()
 
         self.progress_signal.connect(self.on_progress)
         self.status_signal.connect(self.set_status)
         self.finished_signal.connect(self.on_finished)
+        self.server_status_signal.connect(self.set_server_status)
+        self.check_server_connection_async()
 
     def build_ui(self):
         layout = QVBoxLayout(self)
@@ -68,7 +102,23 @@ class UploadUI(QWidget):
         subtitle = QLabel("Gửi một file lên Server với các nút Start, Pause, Resume và Stop")
         subtitle.setStyleSheet(f"color:{TEXT2}; font-size:17px;")
 
-        upload_area = QFrame()
+        server_row = QHBoxLayout()
+        server_row.setSpacing(12)
+
+        self.server_status_label = QLabel(f"Server: Đang kiểm tra {self.server_host}:{self.server_port}")
+        self.server_status_label.setFixedHeight(42)
+        self.server_status_label.setStyleSheet(self.server_status_style(False))
+
+        self.check_server_btn = QPushButton("Kiểm tra")
+        self.check_server_btn.setFixedSize(118, 42)
+        self.check_server_btn.setStyleSheet(self.secondary_button_style())
+        self.check_server_btn.clicked.connect(self.check_server_connection_async)
+
+        server_row.addWidget(self.server_status_label)
+        server_row.addWidget(self.check_server_btn)
+
+        upload_area = DropArea()
+        upload_area.file_dropped.connect(self.set_selected_file)
         upload_area.setFixedHeight(460)
         upload_area.setStyleSheet(f"""
             QFrame {{
@@ -262,14 +312,108 @@ class UploadUI(QWidget):
 
         layout.addWidget(title)
         layout.addWidget(subtitle)
+        layout.addLayout(server_row)
         layout.addWidget(upload_area)
         layout.addStretch()
         self.update_buttons()
+
+    def secondary_button_style(self):
+        return f"""
+        QPushButton {{
+            background:{CARD2};
+            color:white;
+            border:1px solid #334155;
+            border-radius:12px;
+            font-size:14px;
+            font-weight:bold;
+        }}
+        QPushButton:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
+        QPushButton:pressed {{
+            background:#30174f;
+        }}
+        QPushButton:disabled {{
+            color:#64748b;
+            border:1px solid #26324a;
+        }}
+        """
+
+    def server_status_style(self, connected):
+        if connected:
+            return f"""
+            QLabel {{
+                background:#052e24;
+                color:{GREEN};
+                border:1px solid #0f766e;
+                border-radius:12px;
+                padding-left:14px;
+                font-size:14px;
+                font-weight:bold;
+            }}
+            """
+        return f"""
+        QLabel {{
+            background:#2a1425;
+            color:#fda4af;
+            border:1px solid #7f1d1d;
+            border-radius:12px;
+            padding-left:14px;
+            font-size:14px;
+            font-weight:bold;
+        }}
+        """
+
+    def set_server_status(self, connected, message):
+        self.server_status_label.setText(message)
+        self.server_status_label.setStyleSheet(self.server_status_style(connected))
+        if hasattr(self, "check_server_btn"):
+            self.check_server_btn.setEnabled(self.upload_state == "stopped")
+
+    def probe_server_connection(self):
+        client = SocketClient(self.server_host, self.server_port, timeout=1.5)
+        try:
+            sock = client.connect()
+            sock.settimeout(1.5)
+            sock.sendall(b"P")
+            return sock.recv(2) == b"OK"
+        except Exception:
+            return False
+        finally:
+            client.close()
+
+    def check_server_connection_async(self):
+        if hasattr(self, "check_server_btn"):
+            self.check_server_btn.setEnabled(False)
+        self.server_status_signal.emit(
+            False,
+            f"Server: Đang kiểm tra {self.server_host}:{self.server_port}",
+        )
+        threading.Thread(target=self.check_server_connection_worker, daemon=True).start()
+
+    def check_server_connection_worker(self):
+        connected = self.probe_server_connection()
+        if connected:
+            message = f"Server: Đã kết nối {self.server_host}:{self.server_port}"
+        else:
+            message = f"Server: Chưa kết nối {self.server_host}:{self.server_port}"
+        self.server_status_signal.emit(connected, message)
 
     def pick_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Chọn file")
         if not file_path:
             return
+        self.set_selected_file(file_path)
+
+    def set_selected_file(self, file_path):
+        if self.upload_state != "stopped":
+            QMessageBox.warning(self, "UPLOWER", "Không thể đổi file khi đang upload.")
+            return
+        if not file_path or not os.path.isfile(file_path):
+            QMessageBox.warning(self, "UPLOWER", "Vui lòng chọn một file hợp lệ.")
+            return
+
         self.selected_file = file_path
         filename = os.path.basename(file_path)
         size = os.path.getsize(file_path)
@@ -278,10 +422,53 @@ class UploadUI(QWidget):
         self.progress.setValue(0)
         self.update_buttons()
 
+    def dragEnterEvent(self, event):
+        if self.upload_state != "stopped":
+            event.ignore()
+            return
+
+        mime = event.mimeData()
+        if mime.hasUrls() and any(url.isLocalFile() for url in mime.urls()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        if self.upload_state != "stopped":
+            event.ignore()
+            return
+
+        local_files = [
+            url.toLocalFile()
+            for url in event.mimeData().urls()
+            if url.isLocalFile()
+        ]
+
+        if not local_files:
+            event.ignore()
+            return
+
+        file_path = local_files[0]
+        if os.path.isdir(file_path):
+            QMessageBox.warning(self, "UPLOWER", "Chức năng này chỉ hỗ trợ kéo thả một file, không hỗ trợ thư mục.")
+            event.ignore()
+            return
+
+        self.set_selected_file(file_path)
+        event.acceptProposedAction()
+
     def start_upload(self):
         if not self.selected_file:
             QMessageBox.warning(self, "UPLOWER", "Bạn chưa chọn file để upload.")
             return
+        if not self.probe_server_connection():
+            self.set_server_status(False, f"Server: Chưa kết nối {self.server_host}:{self.server_port}")
+            QMessageBox.warning(self, "UPLOWER", "Server chưa sẵn sàng. Vui lòng bật Server bên Admin rồi thử lại.")
+            return
+        self.set_server_status(True, f"Server: Đã kết nối {self.server_host}:{self.server_port}")
         if self.upload_state == "uploading":
             return
         self.upload_state = "uploading"
@@ -454,6 +641,8 @@ class UploadUI(QWidget):
         self.browse_btn.setEnabled(self.upload_state == "stopped")
         self.speed_combo.setEnabled(self.upload_state == "stopped")
         self.policy_combo.setEnabled(self.upload_state == "stopped")
+        if hasattr(self, "check_server_btn"):
+            self.check_server_btn.setEnabled(self.upload_state == "stopped")
 
     def format_bytes(self, value):
         value = float(value)
