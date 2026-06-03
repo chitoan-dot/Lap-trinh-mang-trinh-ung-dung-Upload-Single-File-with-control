@@ -11,10 +11,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
-python -c "import customtkinter; from PIL import Image; import tkinterdnd2" >nul 2>&1
+python -c "import PyQt5" >nul 2>&1
 if errorlevel 1 (
     echo Installing required Python packages...
-    python -m pip install customtkinter pillow tkinterdnd2
+    python -m pip install -r requirements.txt
     if errorlevel 1 (
         echo Failed to install dependencies.
         pause

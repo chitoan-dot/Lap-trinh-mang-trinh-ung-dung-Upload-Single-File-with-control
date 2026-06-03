@@ -1,12 +1,15 @@
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt
 from layout.theme import *
+from client.my_uploads_ui import MyUploadsUI
 from client.upload_ui import UploadUI
+from profile.profile_ui import ProfileUI
 
 
 class ClientUI(QWidget):
-    def __init__(self):
+    def __init__(self, current_user=None):
         super().__init__()
+        self.current_user = current_user or {}
         self.setWindowTitle("UPLOWER - User Portal")
         self.resize(1450, 840)
         self.setMinimumSize(1100, 720)
@@ -30,19 +33,16 @@ class ClientUI(QWidget):
         self.stack = QStackedWidget()
 
         pages = [
-            self.dashboard(),
             UploadUI(),
-            self.my_files(),
-            self.statistics(),
-            self.simple_page("Hồ Sơ", "Thông tin tài khoản người dùng"),
-            self.simple_page("Settings", "Cài đặt hệ thống"),
+            MyUploadsUI(),
+            ProfileUI(role="user", current_user=self.current_user),
         ]
         for page in pages:
             self.stack.addWidget(page)
 
         root.addWidget(self.sidebar)
         root.addWidget(self.stack)
-        self.set_active(self.btn_dashboard, 0)
+        self.set_active(self.btn_upload, 0)
 
     def create_sidebar(self):
         side = QFrame()
@@ -74,20 +74,14 @@ class ClientUI(QWidget):
         layout.addLayout(logo_row)
         layout.addSpacing(25)
 
-        self.btn_dashboard = self.nav_button("⌂", "Dashboard")
         self.btn_upload = self.nav_button("⇧", "Upload Files")
-        self.btn_myfiles = self.nav_button("▤", "My Files")
-        self.btn_statistics = self.nav_button("▥", "Statistics")
+        self.btn_myuploads = self.nav_button("▤", "My Uploads")
         self.btn_profile = self.nav_button("♡", "Hồ Sơ")
-        self.btn_settings = self.nav_button("⚙", "Settings")
 
         buttons = [
-            (self.btn_dashboard, 0),
-            (self.btn_upload, 1),
-            (self.btn_myfiles, 2),
-            (self.btn_statistics, 3),
-            (self.btn_profile, 4),
-            (self.btn_settings, 5),
+            (self.btn_upload, 0),
+            (self.btn_myuploads, 1),
+            (self.btn_profile, 2),
         ]
         for btn, index in buttons:
             btn.clicked.connect(lambda checked, b=btn, i=index: self.set_active(b, i))
@@ -129,6 +123,11 @@ class ClientUI(QWidget):
         btn.setStyleSheet(self.nav_active_style())
         self.current_btn = btn
         self.stack.setCurrentIndex(index)
+        page = self.stack.currentWidget()
+        if hasattr(page, "refresh_history"):
+            page.refresh_history()
+        if hasattr(page, "refresh_stats"):
+            page.refresh_stats()
 
     def page_base(self):
         scroll = QScrollArea()

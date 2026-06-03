@@ -10,6 +10,7 @@ class UploadHeader:
     file_name: str
     file_size: int
     duplicate_policy: str
+    file_hash: bytes = b""
 
 
 def send_upload_header(sock, header: UploadHeader):
@@ -22,6 +23,7 @@ def send_upload_header(sock, header: UploadHeader):
     sock.sendall(file_name_bytes)
     sock.sendall(struct.pack("!Q", header.file_size))
     sock.sendall(header.duplicate_policy.encode("utf-8")[:1])
+    sock.sendall(header.file_hash)
 
 
 def receive_upload_header(sock) -> UploadHeader:
@@ -34,7 +36,8 @@ def receive_upload_header(sock) -> UploadHeader:
     file_name = recv_exact(sock, name_len).decode("utf-8", errors="replace")
     file_size = struct.unpack("!Q", recv_exact(sock, 8))[0]
     duplicate_policy = recv_exact(sock, 1).decode("utf-8", errors="replace") or "R"
-    return UploadHeader(target_dir, file_name, file_size, duplicate_policy)
+    file_hash = recv_exact(sock, 32)
+    return UploadHeader(target_dir, file_name, file_size, duplicate_policy, file_hash)
 
 
 def send_offset(sock, offset: int):

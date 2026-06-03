@@ -3,21 +3,26 @@ import socket
 import threading
 import struct
 import time
+import hashlib
 from datetime import datetime
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import *
 
+from common.constants import SERVER_VERIFY_FAILED, SERVER_VERIFY_OK, SERVER_VERIFY_SKIPPED
 from layout.theme import *
 
 
 class ServerMonitorUI(QWidget):
     log_signal = pyqtSignal(str)
     stat_signal = pyqtSignal()
-    transfer_signal = pyqtSignal(str, str, str, str, str)
+    transfer_signal = pyqtSignal(str, str, str, str, str, str)
 
     def __init__(self):
         super().__init__()
+        self.setWindowTitle("UPLOWER - Server Monitor")
+        self.resize(1450, 840)
+        self.setMinimumSize(1100, 720)
 
         self.host = "0.0.0.0"
         self.port = 8888
@@ -29,6 +34,7 @@ class ServerMonitorUI(QWidget):
 
         self.clients = {}
         self.transfer_rows = {}
+        self.transfer_paths = {}
 
         self.total_files = 0
         self.total_bytes = 0
@@ -281,9 +287,9 @@ class ServerMonitorUI(QWidget):
         self.tabs = QTabWidget()
 
         self.transfer_table = QTableWidget()
-        self.transfer_table.setColumnCount(5)
+        self.transfer_table.setColumnCount(6)
         self.transfer_table.setHorizontalHeaderLabels(
-            ["Tệp", "Thiết bị gửi", "Tiến trình", "Tốc độ", "Trạng thái"]
+            ["Tệp", "Thiết bị gửi", "Tiến trình", "Tốc độ", "Trạng thái", "Mở"]
         )
         self.transfer_table.verticalHeader().setVisible(False)
         self.transfer_table.setShowGrid(False)
@@ -462,10 +468,6 @@ class ServerMonitorUI(QWidget):
         while self.running:
             try:
                 client_socket, addr = self.server_socket.accept()
-                self.clients[addr] = client_socket
-                self.active_transfers += 1
-                self.stat_signal.emit()
-
                 thread = threading.Thread(
                     target=self.handle_client,
                     args=(client_socket, addr),
@@ -481,8 +483,15 @@ class ServerMonitorUI(QWidget):
 
         try:
             command = self.recv_exact(client_socket, 1).decode(errors="replace")
+            if command == "P":
+                client_socket.sendall(b"OK")
+                return
             if command != "U":
                 raise RuntimeError("Lệnh gửi không hợp lệ")
+
+            self.clients[addr] = client_socket
+            self.active_transfers += 1
+            self.stat_signal.emit()
 
             dir_len = struct.unpack("!I", self.recv_exact(client_socket, 4))[0]
             target_dir = self.recv_exact(client_socket, dir_len).decode(errors="replace") if dir_len > 0 else ""
@@ -492,9 +501,11 @@ class ServerMonitorUI(QWidget):
 
             file_size = struct.unpack("!Q", self.recv_exact(client_socket, 8))[0]
             duplicate_policy = self.recv_exact(client_socket, 1).decode(errors="replace") or "R"
+            expected_hash = self.recv_exact(client_socket, 32)
 
             safe_name = os.path.basename(file_name)
-            save_dir = os.path.join(self.upload_dir, target_dir) if target_dir else self.upload_dir
+            safe_dir = self.sanitize_subfolder(target_dir)
+            save_dir = os.path.join(self.upload_dir, safe_dir) if safe_dir else self.upload_dir
             os.makedirs(save_dir, exist_ok=True)
 
             save_path = os.path.join(save_dir, safe_name)
@@ -502,16 +513,37 @@ class ServerMonitorUI(QWidget):
             offset = os.path.getsize(save_path) if os.path.exists(save_path) else 0
             if duplicate_policy == "O":
                 offset = 0
+            elif os.path.exists(save_path) and duplicate_policy == "N":
+                save_path = self.unique_file_path(save_dir, safe_name)
+                safe_name = os.path.basename(save_path)
+                offset = 0
+            elif os.path.exists(save_path) and duplicate_policy == "S":
+                offset = file_size
+            elif os.path.exists(save_path) and offset >= file_size:
+                if self.calculate_file_hash(save_path) != expected_hash:
+                    offset = 0
 
             client_socket.sendall(struct.pack("!Q", offset))
 
             row_key = f"{addr_text}-{safe_name}"
-            self.transfer_signal.emit(row_key, safe_name, addr_text, "0%", "Đang nhận")
+            self.transfer_signal.emit(row_key, safe_name, addr_text, "0%", "Đang nhận", save_path)
+
+            if offset >= file_size:
+                if os.path.exists(save_path) and self.calculate_file_hash(save_path) == expected_hash:
+                    client_socket.sendall(SERVER_VERIFY_SKIPPED)
+                    self.transfer_signal.emit(row_key, safe_name, addr_text, "100%", "Đã bỏ qua", save_path)
+                    self.log_signal.emit(f"Đã xác minh file có sẵn: {safe_name}")
+                else:
+                    client_socket.sendall(SERVER_VERIFY_FAILED)
+                    self.failed_count += 1
+                    self.transfer_signal.emit(row_key, safe_name, addr_text, "100%", "Sai checksum", save_path)
+                    self.log_signal.emit(f"Checksum không khớp với file có sẵn: {safe_name}")
+                return
 
             received = offset
             last_time = time.time()
             last_received = received
-            mode = "ab" if offset > 0 else "wb"
+            mode = "ab" if offset > 0 and duplicate_policy not in ("O", "N") else "wb"
 
             with open(save_path, mode) as f:
                 while received < file_size:
@@ -533,16 +565,26 @@ class ServerMonitorUI(QWidget):
                             safe_name,
                             addr_text,
                             f"{percent}%",
-                            f"{self.format_bytes(speed)}/s"
+                            f"{self.format_bytes(speed)}/s",
+                            save_path,
                         )
 
                         last_time = now
                         last_received = received
                         self.stat_signal.emit()
 
+            actual_hash = self.calculate_file_hash(save_path)
+            if actual_hash != expected_hash:
+                client_socket.sendall(SERVER_VERIFY_FAILED)
+                self.failed_count += 1
+                self.transfer_signal.emit(row_key, safe_name, addr_text, "100%", "Sai checksum", save_path)
+                self.log_signal.emit(f"Checksum không khớp: {safe_name}")
+                return
+
+            client_socket.sendall(SERVER_VERIFY_OK)
             self.total_files += 1
-            self.transfer_signal.emit(row_key, safe_name, addr_text, "100%", "Hoàn tất")
-            self.log_signal.emit(f"Nhận xong file: {safe_name}")
+            self.transfer_signal.emit(row_key, safe_name, addr_text, "100%", "Đã xác minh", save_path)
+            self.log_signal.emit(f"Nhận xong và xác minh file: {safe_name}")
 
         except Exception as e:
             self.failed_count += 1
@@ -560,20 +602,27 @@ class ServerMonitorUI(QWidget):
             self.active_transfers = max(0, self.active_transfers - 1)
             self.stat_signal.emit()
 
-    def update_transfer_row(self, key, file_name, addr, progress, status):
+    def update_transfer_row(self, key, file_name, addr, progress, status, file_path):
         if key not in self.transfer_rows:
             row = self.transfer_table.rowCount()
             self.transfer_table.insertRow(row)
 
             self.transfer_rows[key] = row
+            self.transfer_paths[key] = file_path
 
             self.transfer_table.setItem(row, 0, QTableWidgetItem(file_name))
             self.transfer_table.setItem(row, 1, QTableWidgetItem(addr))
             self.transfer_table.setItem(row, 2, QTableWidgetItem(progress))
             self.transfer_table.setItem(row, 3, QTableWidgetItem("--"))
             self.transfer_table.setItem(row, 4, QTableWidgetItem(status))
+            open_btn = QPushButton("Mở")
+            open_btn.setEnabled(False)
+            open_btn.setStyleSheet(self.control_button_style())
+            open_btn.clicked.connect(lambda _checked=False, transfer_key=key: self.open_transfer_file(transfer_key))
+            self.transfer_table.setCellWidget(row, 5, open_btn)
         else:
             row = self.transfer_rows[key]
+            self.transfer_paths[key] = file_path
             self.transfer_table.setItem(row, 2, QTableWidgetItem(progress))
 
             if status.endswith("/s"):
@@ -581,6 +630,23 @@ class ServerMonitorUI(QWidget):
                 self.transfer_table.setItem(row, 4, QTableWidgetItem("Đang nhận"))
             else:
                 self.transfer_table.setItem(row, 4, QTableWidgetItem(status))
+
+        row = self.transfer_rows[key]
+        open_btn = self.transfer_table.cellWidget(row, 5)
+        if open_btn:
+            can_open = os.path.exists(file_path) and status in ("Đã xác minh", "Đã bỏ qua")
+            open_btn.setEnabled(can_open)
+
+    def open_transfer_file(self, key):
+        file_path = self.transfer_paths.get(key)
+        if not file_path or not os.path.exists(file_path):
+            self.log_signal.emit("Không tìm thấy tệp để mở.")
+            return
+        try:
+            os.startfile(file_path)
+            self.log_signal.emit(f"Đã mở tệp: {file_path}")
+        except Exception as e:
+            self.log_signal.emit(f"Không thể mở tệp: {e}")
 
     def update_stats(self):
         self.lbl_clients.value_label.setText(str(len(self.clients)))
@@ -618,6 +684,34 @@ class ServerMonitorUI(QWidget):
             received += len(chunk)
 
         return b"".join(chunks)
+
+    def sanitize_subfolder(self, folder_name):
+        folder_name = (folder_name or "").strip().replace("\\", "/")
+        parts = []
+        for part in folder_name.split("/"):
+            part = part.strip().strip(".")
+            if part:
+                parts.append(part)
+        return os.path.join(*parts) if parts else ""
+
+    def unique_file_path(self, folder, file_name):
+        stem, ext = os.path.splitext(file_name)
+        candidate = os.path.join(folder, file_name)
+        counter = 1
+        while os.path.exists(candidate):
+            candidate = os.path.join(folder, f"{stem} ({counter}){ext}")
+            counter += 1
+        return candidate
+
+    def calculate_file_hash(self, file_path):
+        digest = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.digest()
 
     def get_lan_ip(self):
         try:

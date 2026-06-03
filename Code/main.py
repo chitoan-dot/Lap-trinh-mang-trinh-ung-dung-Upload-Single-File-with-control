@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 
@@ -6,22 +7,42 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 
-def run_pyqt_app():
-    from PyQt5.QtWidgets import QApplication
+def create_window(mode):
+    if mode == "client":
+        from client.ui_client import ClientUI
+        return ClientUI()
+    if mode == "server":
+        from server.server_monitor_ui import ServerMonitorUI
+        return ServerMonitorUI()
+    if mode == "admin":
+        from admin.ui_admin import AdminUI
+        return AdminUI()
+
     from auth.login_ui import LoginUI
+    return LoginUI()
+
+
+def run_pyqt_app(mode):
+    from PyQt5.QtWidgets import QApplication
 
     app = QApplication(sys.argv)
-
-    window = LoginUI()
+    window = create_window(mode)
     window.show()
-
     return app.exec_()
 
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(description="UPLOWER desktop upload app")
+    parser.add_argument("mode", nargs="?", choices=["login", "client", "server", "admin"], default="login")
+    args = parser.parse_args()
+
     try:
-        sys.exit(run_pyqt_app())
+        sys.exit(run_pyqt_app(args.mode))
     except Exception as e:
-        print("\n===== LỖI KHỞI ĐỘNG =====")
+        print("\n===== LOI KHOI DONG =====")
         print(e)
-        input("\nNhấn Enter để thoát...")
+        input("\nNhan Enter de thoat...")
+
+
+if __name__ == "__main__":
+    main()

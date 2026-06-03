@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 
 from layout.theme import *
+from auth.auth_manager import auth_manager
 from client.ui_client import ClientUI
 from admin.ui_admin import AdminUI
 
@@ -169,6 +170,10 @@ class LoginUI(QWidget):
         user_btn.clicked.connect(lambda: self.set_role("user"))
         admin_btn.clicked.connect(lambda: self.set_role("admin"))
 
+        if prefix == "register":
+            admin_btn.setEnabled(False)
+            admin_btn.setToolTip("Admin mac dinh do he thong cap. Dang ky moi chi tao User.")
+
         setattr(self, f"{prefix}_user_btn", user_btn)
         setattr(self, f"{prefix}_admin_btn", admin_btn)
 
@@ -321,6 +326,7 @@ class LoginUI(QWidget):
                 admin_btn.setStyleSheet(self.role_button_style(role == "admin"))
 
     def show_register(self):
+        self.set_role("user")
         self.stack.setCurrentIndex(1)
         self.setWindowTitle("UPLOWER - Register")
 
@@ -336,10 +342,16 @@ class LoginUI(QWidget):
             QMessageBox.warning(self, "UPLOWER", "Vui lòng nhập email và mật khẩu!")
             return
 
+        try:
+            user = auth_manager.authenticate(email, password, expected_role=self.role)
+        except ValueError as e:
+            QMessageBox.warning(self, "UPLOWER", str(e))
+            return
+
         if self.role == "admin":
-            self.app_window = AdminUI()
+            self.app_window = AdminUI(current_user=user)
         else:
-            self.app_window = ClientUI()
+            self.app_window = ClientUI(current_user=user)
 
         self.app_window.show()
         self.close()
@@ -362,7 +374,13 @@ class LoginUI(QWidget):
             QMessageBox.warning(self, "UPLOWER", "Vui lòng đồng ý điều khoản!")
             return
 
-        QMessageBox.information(self, "UPLOWER", "Đăng ký thành công! Vui lòng đăng nhập.")
+        try:
+            auth_manager.create_user(name, email, password, role="user")
+        except ValueError as e:
+            QMessageBox.warning(self, "UPLOWER", str(e))
+            return
+
+        QMessageBox.information(self, "UPLOWER", "Đăng ký thành công. Vui lòng đăng nhập.")
         self.login_email.setText(email)
         self.login_password.clear()
         self.show_login()

@@ -1,165 +1,306 @@
+import json
+import os
+
 from PyQt5.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QFrame,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
-    QFrame,
+    QMessageBox,
     QPushButton,
-    QMessageBox
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-
-from layout.theme import *
-from layout.style import *
-
-
-class ProfileUI(QWidget):
-
-    def __init__(self, role="user"):
-        super().__init__()
-
-        self.setStyleSheet(PAGE_STYLE)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(35, 35, 35, 35)
-
-        card = QFrame()
-        card.setStyleSheet(CARD_STYLE)
-
-        box = QVBoxLayout(card)
-        box.setContentsMargins(30, 30, 30, 30)
-
-        title = QLabel(
-            "Hồ Sơ Quản Trị Viên" if role == "admin" else "Hồ Sơ Cá Nhân"
-        )
-        title.setStyleSheet(
-            f"font-size:26px; font-weight:bold; color:{TEXT};"
-        )
-
-        grid = QGridLayout()
-        grid.setSpacing(18)
-
-        fields = [
-            ("Họ và Tên", "Administrator" if role == "admin" else "User Demo"),
-            ("Email", "admin@uplower.com" if role == "admin" else "user@uplower.com"),
-            ("Số Điện Thoại", "+84 123 456 789"),
-            ("Địa Chỉ", "Việt Nam"),
-            ("Chức Vụ", "Admin" if role == "admin" else "User"),
-            ("Phòng Ban", "System" if role == "admin" else "Client"),
-        ]
-
-        self.inputs = []
-
-        for i, (label, value) in enumerate(fields):
-            l = QLabel(label)
-            l.setStyleSheet(f"color:{TEXT2}; font-weight:bold;")
-
-            inp = QLineEdit(value)
-            inp.setStyleSheet(INPUT_STYLE)
-
-            grid.addWidget(l, i, 0)
-            grid.addWidget(inp, i, 1)
-
-            self.inputs.append(inp)
-
-        save = QPushButton("Lưu Thay Đổi")
-        save.setStyleSheet(BUTTON_STYLE)
-        save.clicked.connect(self.save_profile)
-
-        box.addWidget(title)
-        box.addSpacing(20)
-        box.addLayout(grid)
-        box.addSpacing(20)
-        box.addWidget(save)
-
-        layout.addWidget(card)
-        layout.addStretch()
-
-    def save_profile(self):
-        QMessageBox.information(
-            self,
-            "UPLOWER",
-            "Đã lưu thông tin hồ sơ"
-        )
-from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt
+
+from client.upload_history import load_upload_history
 from layout.theme import *
 
 
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+PROFILE_FILE = os.path.join(BASE_DIR, "config", "profile_data.json")
+
+
 class ProfileUI(QWidget):
-    def __init__(self, role="user"):
+    def __init__(self, role="user", current_user=None):
         super().__init__()
         self.role = role
-        self.setStyleSheet(f"background:{BG}; color:{TEXT};")
+        self.current_user = current_user or {}
+        self.inputs = {}
+        self.about_edit = None
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(40, 35, 40, 35)
-        root.setSpacing(28)
-
-        header = QHBoxLayout()
-
-        title_box = QVBoxLayout()
-        title = QLabel("Hồ Sơ Của Tôi")
-        title.setStyleSheet("font-size:36px; font-weight:900;")
-
-        sub = QLabel("Quản lý thông tin cá nhân và cài đặt tài khoản")
-        sub.setStyleSheet(f"font-size:20px; color:{TEXT2};")
-
-        title_box.addWidget(title)
-        title_box.addWidget(sub)
-
-        edit_btn = QPushButton("Chỉnh Sửa Hồ Sơ")
-        edit_btn.setFixedSize(190, 52)
-        edit_btn.setStyleSheet(f"""
-        QPushButton {{
-            background:{GRADIENT};
-            color:white;
+        self.setStyleSheet(f"""
+        QWidget {{
+            background:{BG};
+            color:{TEXT};
+            font-family:Segoe UI, Arial;
+            font-size:15px;
+        }}
+        QLabel {{
             border:none;
-            border-radius:14px;
-            font-size:17px;
-            font-weight:bold;
+            background:transparent;
         }}
         """)
 
+        self.profile = self.load_profile()
+        self.build_ui()
+        self.refresh_stats()
+
+    def default_profile(self):
+        user_name = self.current_user.get("full_name")
+        user_email = self.current_user.get("email")
+        if self.role == "admin":
+            return {
+                "name": user_name or "Administrator",
+                "email": user_email or "admin@uplower.local",
+                "phone": "",
+                "address": "",
+                "department": "System",
+                "position": "Admin",
+                "about": "Quan ly may chu nhan tep va theo doi cac phien upload.",
+            }
+        return {
+            "name": user_name or "User Demo",
+            "email": user_email or "user@uplower.local",
+            "phone": "",
+            "address": "",
+            "department": "Client",
+            "position": "User",
+            "about": "Tai khoan dung de gui file len may chu.",
+        }
+
+    def load_profile(self):
+        data = {}
+        try:
+            if os.path.exists(PROFILE_FILE):
+                with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    data = loaded if isinstance(loaded, dict) else {}
+        except Exception:
+            data = {}
+
+        profile = self.default_profile()
+        profile.update(data.get(self.role, {}))
+        return profile
+
+    def save_profile_data(self):
+        all_profiles = {}
+        try:
+            if os.path.exists(PROFILE_FILE):
+                with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    all_profiles = loaded if isinstance(loaded, dict) else {}
+        except Exception:
+            all_profiles = {}
+
+        data = {key: field.text().strip() for key, field in self.inputs.items()}
+        data["about"] = self.about_edit.toPlainText().strip() if self.about_edit else ""
+        all_profiles[self.role] = data
+
+        os.makedirs(os.path.dirname(PROFILE_FILE), exist_ok=True)
+        with open(PROFILE_FILE, "w", encoding="utf-8") as f:
+            json.dump(all_profiles, f, indent=2, ensure_ascii=False)
+        self.profile.update(data)
+        self.update_identity()
+        QMessageBox.information(self, "UPLOWER", "Da luu thong tin ho so.")
+
+    def build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(40, 35, 40, 35)
+        root.setSpacing(26)
+
+        header = QHBoxLayout()
+        title_box = QVBoxLayout()
+        title = QLabel("Ho So Cua Toi" if self.role == "user" else "Ho So Admin")
+        title.setStyleSheet("font-size:36px; font-weight:900;")
+        sub = QLabel("Cap nhat thong tin tai khoan va xem thong ke lien quan")
+        sub.setStyleSheet(f"font-size:20px; color:{TEXT2};")
+        title_box.addWidget(title)
+        title_box.addWidget(sub)
+
+        save_btn = QPushButton("Luu Ho So")
+        save_btn.setFixedSize(150, 52)
+        save_btn.setStyleSheet(self.primary_button_style())
+        save_btn.clicked.connect(self.save_profile_data)
+
         header.addLayout(title_box)
         header.addStretch()
-        header.addWidget(edit_btn)
-
+        header.addWidget(save_btn)
         root.addLayout(header)
 
-        row1 = QHBoxLayout()
-        row1.setSpacing(30)
+        body = QHBoxLayout()
+        body.setSpacing(26)
+        body.addWidget(self.identity_card(), 1)
+        body.addWidget(self.form_card(), 2)
+        root.addLayout(body)
 
-        row1.addWidget(self.profile_card(), 1)
-        row1.addWidget(self.personal_info_card(), 2)
-
-        root.addLayout(row1)
-
-        row2 = QHBoxLayout()
-        row2.setSpacing(30)
-
-        row2.addWidget(self.quick_stats_card(), 1)
-        row2.addWidget(self.work_info_card(), 2)
-
-        root.addLayout(row2)
-
-        row3 = QHBoxLayout()
-        row3.setSpacing(30)
-
-        row3.addWidget(self.achievement_card(), 1)
-        row3.addWidget(self.recent_activity_card(), 2)
-
-        root.addLayout(row3)
+        bottom = QHBoxLayout()
+        bottom.setSpacing(26)
+        bottom.addWidget(self.stats_card(), 1)
+        bottom.addWidget(self.about_card(), 2)
+        root.addLayout(bottom)
         root.addStretch()
 
-    def card_style(self):
-        return f"""
-        QFrame {{
-            background:{CARD};
-            border:1px solid {BORDER};
-            border-radius:18px;
+    def identity_card(self):
+        card = QFrame()
+        card.setMinimumHeight(330)
+        card.setStyleSheet(self.card_style())
+        box = QVBoxLayout(card)
+        box.setAlignment(Qt.AlignCenter)
+        box.setSpacing(14)
+
+        avatar = QLabel("AD" if self.role == "admin" else "US")
+        avatar.setAlignment(Qt.AlignCenter)
+        avatar.setFixedSize(150, 150)
+        avatar.setStyleSheet(f"""
+        QLabel {{
+            background:{GRADIENT};
+            color:white;
+            border-radius:75px;
+            font-size:42px;
+            font-weight:900;
         }}
-        """
+        """)
+
+        self.name_label = QLabel()
+        self.name_label.setAlignment(Qt.AlignCenter)
+        self.name_label.setStyleSheet("font-size:25px; font-weight:900;")
+        self.role_label = QLabel()
+        self.role_label.setAlignment(Qt.AlignCenter)
+        self.role_label.setStyleSheet(f"font-size:17px; color:{TEXT2};")
+        self.department_label = QLabel()
+        self.department_label.setAlignment(Qt.AlignCenter)
+        self.department_label.setStyleSheet(f"font-size:15px; color:{TEXT2};")
+
+        box.addWidget(avatar)
+        box.addWidget(self.name_label)
+        box.addWidget(self.role_label)
+        box.addWidget(self.department_label)
+        self.update_identity()
+        return card
+
+    def form_card(self):
+        card = QFrame()
+        card.setMinimumHeight(330)
+        card.setStyleSheet(self.card_style())
+        box = QVBoxLayout(card)
+        box.setContentsMargins(30, 28, 30, 28)
+        box.setSpacing(18)
+
+        title = QLabel("Thong Tin Ca Nhan")
+        title.setStyleSheet("font-size:24px; font-weight:900;")
+        box.addWidget(title)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(20)
+        grid.setVerticalSpacing(14)
+
+        fields = [
+            ("name", "Ho va ten"),
+            ("email", "Email"),
+            ("phone", "So dien thoai"),
+            ("address", "Dia chi"),
+            ("position", "Chuc vu"),
+            ("department", "Phong ban"),
+        ]
+
+        for index, (key, label_text) in enumerate(fields):
+            label = QLabel(label_text)
+            label.setStyleSheet(f"font-size:15px; color:{TEXT2}; font-weight:bold;")
+            edit = QLineEdit(self.profile.get(key, ""))
+            edit.setFixedHeight(48)
+            edit.setStyleSheet(self.input_style())
+            self.inputs[key] = edit
+            row = index // 2 * 2
+            col = index % 2
+            grid.addWidget(label, row, col)
+            grid.addWidget(edit, row + 1, col)
+
+        box.addLayout(grid)
+        return card
+
+    def stats_card(self):
+        card = QFrame()
+        card.setMinimumHeight(260)
+        card.setStyleSheet(self.card_style())
+        box = QVBoxLayout(card)
+        box.setContentsMargins(30, 28, 30, 28)
+        box.setSpacing(14)
+
+        title = QLabel("Thong Ke Tai Khoan")
+        title.setStyleSheet("font-size:24px; font-weight:900;")
+        box.addWidget(title)
+
+        self.stat_uploads = self.stat_row("Total Uploads", "0")
+        self.stat_success = self.stat_row("Verified", "0")
+        self.stat_skipped = self.stat_row("Skipped", "0")
+        self.stat_storage = self.stat_row("Uploaded Size", "0 MB")
+        for row in (self.stat_uploads, self.stat_success, self.stat_skipped, self.stat_storage):
+            box.addWidget(row)
+        return card
+
+    def about_card(self):
+        card = QFrame()
+        card.setMinimumHeight(260)
+        card.setStyleSheet(self.card_style())
+        box = QVBoxLayout(card)
+        box.setContentsMargins(30, 28, 30, 28)
+        box.setSpacing(14)
+
+        title = QLabel("Gioi Thieu")
+        title.setStyleSheet("font-size:24px; font-weight:900;")
+        self.about_edit = QTextEdit()
+        self.about_edit.setText(self.profile.get("about", ""))
+        self.about_edit.setStyleSheet(f"""
+        QTextEdit {{
+            background:{CARD2};
+            color:{TEXT};
+            border:1px solid #334155;
+            border-radius:14px;
+            padding:14px;
+            font-size:16px;
+        }}
+        """)
+        box.addWidget(title)
+        box.addWidget(self.about_edit)
+        return card
+
+    def stat_row(self, name, value):
+        row = QFrame()
+        row.setFixedHeight(48)
+        row.setStyleSheet("background:#13162a; border:none; border-radius:12px;")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(16, 0, 16, 0)
+        label = QLabel(name)
+        label.setStyleSheet(f"font-size:15px; color:{TEXT2};")
+        value_label = QLabel(value)
+        value_label.setStyleSheet("font-size:16px; font-weight:900; color:white;")
+        layout.addWidget(label)
+        layout.addStretch()
+        layout.addWidget(value_label)
+        row.value_label = value_label
+        return row
+
+    def refresh_stats(self):
+        records = load_upload_history()
+        verified = [r for r in records if r.get("status") == "Verified"]
+        skipped = [r for r in records if r.get("status") == "Skipped"]
+        total_size = sum(int(r.get("file_size", 0) or 0) for r in verified)
+        self.stat_uploads.value_label.setText(str(len(records)))
+        self.stat_success.value_label.setText(str(len(verified)))
+        self.stat_skipped.value_label.setText(str(len(skipped)))
+        self.stat_storage.value_label.setText(self.format_bytes(total_size))
+
+    def update_identity(self):
+        if hasattr(self, "name_label"):
+            self.name_label.setText(self.profile.get("name", ""))
+            self.role_label.setText(self.profile.get("position", self.role.title()))
+            self.department_label.setText(self.profile.get("department", ""))
+
+    def card_style(self):
+        return f"QFrame {{ background:{CARD}; border:1px solid {BORDER}; border-radius:18px; }}"
 
     def input_style(self):
         return f"""
@@ -168,237 +309,28 @@ class ProfileUI(QWidget):
             color:{TEXT};
             border:1px solid #334155;
             border-radius:14px;
-            padding-left:16px;
-            font-size:17px;
+            padding-left:14px;
+            font-size:16px;
         }}
+        QLineEdit:focus {{ border:1px solid {PRIMARY}; }}
         """
 
-    def profile_card(self):
-        card = QFrame()
-        card.setMinimumHeight(330)
-        card.setStyleSheet(self.card_style())
-
-        box = QVBoxLayout(card)
-        box.setAlignment(Qt.AlignCenter)
-        box.setSpacing(14)
-
-        avatar = QLabel("♙")
-        avatar.setAlignment(Qt.AlignCenter)
-        avatar.setFixedSize(160, 160)
-        avatar.setStyleSheet(f"""
-        QLabel {{
+    def primary_button_style(self):
+        return f"""
+        QPushButton {{
             background:{GRADIENT};
-            border-radius:80px;
-            font-size:80px;
-            font-weight:bold;
-        }}
-        """)
-
-        name = QLabel("Người dùng mới")
-        name.setAlignment(Qt.AlignCenter)
-        name.setStyleSheet("font-size:25px; font-weight:900;")
-
-        role = QLabel("User")
-        role.setAlignment(Qt.AlignCenter)
-        role.setStyleSheet(f"font-size:17px; color:{TEXT2};")
-
-        dept = QLabel("Chưa cập nhật")
-        dept.setAlignment(Qt.AlignCenter)
-        dept.setStyleSheet(f"font-size:15px; color:{TEXT2};")
-
-        box.addWidget(avatar)
-        box.addWidget(name)
-        box.addWidget(role)
-        box.addWidget(dept)
-
-        return card
-
-    def personal_info_card(self):
-        card = QFrame()
-        card.setMinimumHeight(330)
-        card.setStyleSheet(self.card_style())
-
-        box = QVBoxLayout(card)
-        box.setContentsMargins(30, 28, 30, 28)
-        box.setSpacing(18)
-
-        title = QLabel("Thông Tin Cá Nhân")
-        title.setStyleSheet("font-size:24px; font-weight:900;")
-        box.addWidget(title)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(20)
-        grid.setVerticalSpacing(16)
-
-        fields = [
-            ("Họ và Tên", "Chưa cập nhật"),
-            ("Email", "Chưa cập nhật"),
-            ("Số Điện Thoại", "Chưa cập nhật"),
-            ("Địa Chỉ", "Chưa cập nhật"),
-        ]
-
-        for i, (label, value) in enumerate(fields):
-            lb = QLabel(label)
-            lb.setStyleSheet(f"font-size:16px; color:{TEXT2}; font-weight:bold;")
-
-            inp = QLineEdit()
-            inp.setText(value)
-            inp.setReadOnly(True)
-            inp.setFixedHeight(56)
-            inp.setStyleSheet(self.input_style())
-
-            grid.addWidget(lb, i // 2 * 2, i % 2)
-            grid.addWidget(inp, i // 2 * 2 + 1, i % 2)
-
-        box.addLayout(grid)
-        box.addStretch()
-
-        return card
-
-    def quick_stats_card(self):
-        card = QFrame()
-        card.setMinimumHeight(300)
-        card.setStyleSheet(self.card_style())
-
-        box = QVBoxLayout(card)
-        box.setContentsMargins(30, 28, 30, 28)
-        box.setSpacing(16)
-
-        title = QLabel("Thống Kê Nhanh")
-        title.setStyleSheet("font-size:24px; font-weight:900;")
-        box.addWidget(title)
-
-        stats = [
-            ("⇧", "Total Uploads", "0"),
-            ("▤", "Total Files", "0"),
-            ("▰", "Storage Used", "0 MB"),
-            ("◷", "Account Age", "0 days"),
-        ]
-
-        for icon, name, value in stats:
-            row = QFrame()
-            row.setFixedHeight(60)
-            row.setStyleSheet("background:#13162a; border:none; border-radius:14px;")
-
-            r = QHBoxLayout(row)
-            r.setContentsMargins(18, 0, 18, 0)
-
-            ic = QLabel(icon)
-            ic.setStyleSheet("font-size:24px; color:#c084fc;")
-
-            lb = QLabel(name)
-            lb.setStyleSheet(f"font-size:17px; color:{TEXT2};")
-
-            val = QLabel(value)
-            val.setStyleSheet("font-size:18px; font-weight:900;")
-
-            r.addWidget(ic)
-            r.addWidget(lb)
-            r.addStretch()
-            r.addWidget(val)
-
-            box.addWidget(row)
-
-        return card
-
-    def work_info_card(self):
-        card = QFrame()
-        card.setMinimumHeight(300)
-        card.setStyleSheet(self.card_style())
-
-        box = QVBoxLayout(card)
-        box.setContentsMargins(30, 28, 30, 28)
-        box.setSpacing(18)
-
-        title = QLabel("Thông Tin Công Việc")
-        title.setStyleSheet("font-size:24px; font-weight:900;")
-        box.addWidget(title)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(20)
-        grid.setVerticalSpacing(16)
-
-        fields = [
-            ("Chức Vụ", "Chưa cập nhật"),
-            ("Phòng Ban", "Chưa cập nhật"),
-        ]
-
-        for i, (label, value) in enumerate(fields):
-            lb = QLabel(label)
-            lb.setStyleSheet(f"font-size:16px; color:{TEXT2}; font-weight:bold;")
-
-            inp = QLineEdit(value)
-            inp.setReadOnly(True)
-            inp.setFixedHeight(56)
-            inp.setStyleSheet(self.input_style())
-
-            grid.addWidget(lb, 0, i)
-            grid.addWidget(inp, 1, i)
-
-        about_lb = QLabel("Giới Thiệu Bản Thân")
-        about_lb.setStyleSheet(f"font-size:16px; color:{TEXT2}; font-weight:bold;")
-
-        about = QTextEdit()
-        about.setReadOnly(True)
-        about.setText("Chưa cập nhật")
-        about.setFixedHeight(120)
-        about.setStyleSheet(f"""
-        QTextEdit {{
-            background:{CARD2};
-            color:{TEXT2};
-            border:1px solid #334155;
+            color:white;
+            border:none;
             border-radius:14px;
-            padding:14px;
-            font-size:17px;
+            font-size:16px;
+            font-weight:900;
         }}
-        """)
+        QPushButton:hover {{ background:#ec4899; }}
+        """
 
-        box.addLayout(grid)
-        box.addWidget(about_lb)
-        box.addWidget(about)
-
-        return card
-
-    def achievement_card(self):
-        card = QFrame()
-        card.setMinimumHeight(300)
-        card.setStyleSheet(self.card_style())
-
-        box = QVBoxLayout(card)
-        box.setContentsMargins(30, 28, 30, 28)
-
-        title = QLabel("Thành Tích")
-        title.setStyleSheet("font-size:24px; font-weight:900;")
-        box.addWidget(title)
-
-        empty = QLabel("Chưa có thành tích")
-        empty.setAlignment(Qt.AlignCenter)
-        empty.setStyleSheet(f"font-size:18px; color:{TEXT2};")
-
-        box.addStretch()
-        box.addWidget(empty)
-        box.addStretch()
-
-        return card
-
-    def recent_activity_card(self):
-        card = QFrame()
-        card.setMinimumHeight(300)
-        card.setStyleSheet(self.card_style())
-
-        box = QVBoxLayout(card)
-        box.setContentsMargins(30, 28, 30, 28)
-
-        title = QLabel("Hoạt Động Gần Đây")
-        title.setStyleSheet("font-size:24px; font-weight:900;")
-        box.addWidget(title)
-
-        empty = QLabel("Chưa có hoạt động gần đây")
-        empty.setAlignment(Qt.AlignCenter)
-        empty.setStyleSheet(f"font-size:18px; color:{TEXT2};")
-
-        box.addStretch()
-        box.addWidget(empty)
-        box.addStretch()
-
-        return card
+    def format_bytes(self, value):
+        value = float(value or 0)
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if value < 1024 or unit == "TB":
+                return f"{value:.0f} {unit}" if unit == "B" else f"{value:.2f} {unit}"
+            value /= 1024

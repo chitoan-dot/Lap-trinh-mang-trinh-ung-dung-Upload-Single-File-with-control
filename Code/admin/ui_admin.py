@@ -1,12 +1,22 @@
+import os
+
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt
 from layout.theme import *
+from auth.auth_manager import auth_manager
+from client.upload_history import load_upload_history
+from profile.profile_ui import ProfileUI
 from server.server_monitor_ui import ServerMonitorUI
 
 
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+UPLOAD_DIR = os.path.join(BASE_DIR, "Uploads")
+
+
 class AdminUI(QWidget):
-    def __init__(self):
+    def __init__(self, current_user=None):
         super().__init__()
+        self.current_user = current_user or {}
         self.setWindowTitle("UPLOWER - Admin Panel")
         self.resize(1450, 850)
         self.setMinimumSize(1100, 720)
@@ -52,8 +62,8 @@ class AdminUI(QWidget):
             self.analytics_page_ui(),
             self.security_page_ui(),
             ServerMonitorUI(),
-            self.simple_page("Hồ Sơ", "Thông tin tài khoản Admin"),
-            self.simple_page("Settings", "Cài đặt hệ thống"),
+            ProfileUI(role="admin", current_user=self.current_user),
+            self.settings_page_ui(),
         ]
 
         for page in pages:
@@ -192,6 +202,87 @@ class AdminUI(QWidget):
         btn.setStyleSheet(self.nav_active_style())
         self.current_btn = btn
         self.stack.setCurrentIndex(index)
+        page = self.stack.currentWidget()
+        if hasattr(page, "refresh_history"):
+            page.refresh_history()
+        if hasattr(page, "refresh_stats"):
+            page.refresh_stats()
+
+    def uploaded_files(self):
+        files = []
+        if not os.path.isdir(UPLOAD_DIR):
+            return files
+        for root, _dirs, names in os.walk(UPLOAD_DIR):
+            for name in names:
+                path = os.path.join(root, name)
+                try:
+                    stat = os.stat(path)
+                except OSError:
+                    continue
+                rel_dir = os.path.relpath(root, UPLOAD_DIR)
+                files.append({
+                    "name": name,
+                    "folder": "" if rel_dir == "." else rel_dir,
+                    "size": stat.st_size,
+                    "modified": self.format_timestamp(stat.st_mtime),
+                    "path": path,
+                    "type": os.path.splitext(name)[1].lower() or "file",
+                })
+        files.sort(key=lambda item: item["modified"], reverse=True)
+        return files
+
+    def upload_history(self):
+        return load_upload_history()
+
+    def admin_summary(self):
+        users = auth_manager.list_users()
+        files = self.uploaded_files()
+        history = self.upload_history()
+        verified = [item for item in history if item.get("status") == "Verified"]
+        skipped = [item for item in history if item.get("status") == "Skipped"]
+        failed = [item for item in history if item.get("status") in ("Failed", "Stopped")]
+        return {
+            "users": users,
+            "files": files,
+            "history": history,
+            "verified": verified,
+            "skipped": skipped,
+            "failed": failed,
+            "storage": sum(item["size"] for item in files),
+        }
+
+    def data_table(self, headers, rows, height=430):
+        table = QTableWidget()
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setRowCount(len(rows))
+        table.verticalHeader().setVisible(False)
+        table.setShowGrid(False)
+        table.setMinimumHeight(height)
+        table.setStyleSheet(self.table_style())
+        table.horizontalHeader().setStretchLastSection(True)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        for index in range(1, len(headers)):
+            table.horizontalHeader().setSectionResizeMode(index, QHeaderView.ResizeToContents)
+
+        for row_index, row_values in enumerate(rows):
+            for col_index, value in enumerate(row_values):
+                table.setItem(row_index, col_index, QTableWidgetItem(str(value)))
+        return table
+
+    def format_bytes(self, value):
+        value = float(value or 0)
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if value < 1024 or unit == "TB":
+                return f"{value:.0f} {unit}" if unit == "B" else f"{value:.2f} {unit}"
+            value /= 1024
+
+    def format_timestamp(self, timestamp):
+        try:
+            from datetime import datetime
+            return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return "--"
 
     def page_base(self):
         scroll = QScrollArea()
@@ -258,46 +349,45 @@ class AdminUI(QWidget):
 
     def dashboard(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Admin Dashboard", "Monitor and manage system activities"))
+        layout.addLayout(self.topbar("Admin Dashboard", "Monitor real users, uploads and storage"))
+        summary = self.admin_summary()
+        users = summary["users"]
+        files = summary["files"]
+        history = summary["history"]
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("♧", "0", "Total Users", "+0%"))
-        stats.addWidget(self.stat_card("▤", "0", "Total Files", "+0%"))
-        stats.addWidget(self.stat_card("▭", "0%", "Server Load", "+0%"))
-        stats.addWidget(self.stat_card("▰", "0 MB", "Storage", "+0 MB"))
+        stats.addWidget(self.stat_card("?", str(len(users)), "Total Users"))
+        stats.addWidget(self.stat_card("?", str(len(files)), "Stored Files"))
+        stats.addWidget(self.stat_card("?", str(len(summary["verified"])), "Verified Uploads"))
+        stats.addWidget(self.stat_card("?", self.format_bytes(summary["storage"]), "Storage"))
         layout.addLayout(stats)
 
         health = QFrame()
         health.setMinimumHeight(170)
         health.setStyleSheet(self.card_style())
-
         hbox = QVBoxLayout(health)
         hbox.setContentsMargins(30, 28, 30, 28)
 
         title = QLabel("System Health")
         title.setStyleSheet("font-size:23px; font-weight:900; border:none; background:transparent;")
         hbox.addWidget(title)
-
         row = QHBoxLayout()
 
         for name, value in [
-            ("CPU Usage", 0),
-            ("Memory", 0),
-            ("Disk Space", 0),
-            ("Network", 0),
+            ("Auth Database", 100 if users else 0),
+            ("Upload Folder", 100 if os.path.isdir(UPLOAD_DIR) else 0),
+            ("History Data", 100 if history else 0),
+            ("Role Control", 100),
         ]:
             col = QVBoxLayout()
-
             lab = QLabel(f"{name}                 {value}%")
             lab.setStyleSheet("font-size:16px; color:#b5c7e8; border:none; background:transparent;")
-
             bar = QProgressBar()
             bar.setValue(value)
             bar.setTextVisible(False)
             bar.setFixedHeight(10)
             bar.setStyleSheet(self.progress_style())
-
             col.addWidget(lab)
             col.addWidget(bar)
             row.addLayout(col)
@@ -307,148 +397,212 @@ class AdminUI(QWidget):
 
         bottom = QHBoxLayout()
         bottom.setSpacing(30)
-        bottom.addWidget(self.list_card("Recent Users", []))
-        bottom.addWidget(self.list_card("Pending Approvals", []))
+        recent_users = [
+            f"{user.get('full_name', '')} - {user.get('role', '')} - {user.get('status', '')}"
+            for user in users[:5]
+        ]
+        recent_uploads = [
+            f"{item.get('file_name', '')} - {item.get('status', '')} - {item.get('time', '')}"
+            for item in history[:5]
+        ]
+        bottom.addWidget(self.list_card("Recent Users", recent_users))
+        bottom.addWidget(self.list_card("Recent Uploads", recent_uploads))
         layout.addLayout(bottom)
 
-        layout.addWidget(self.bar_chart_card("Upload Activity (Last 30 Days)"))
+        activity_rows = [
+            [
+                item.get("time", ""),
+                item.get("file_name", ""),
+                self.format_bytes(item.get("file_size", 0)),
+                item.get("server", ""),
+                item.get("status", ""),
+            ]
+            for item in history[:8]
+        ]
+        layout.addWidget(self.data_table(["Time", "File", "Size", "Server", "Status"], activity_rows, 360))
         return page
 
     def users_page_ui(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Users Management", "Manage and monitor all system users", add_btn=True))
+        layout.addLayout(self.topbar("Users Management", "Manage registered user and admin accounts"))
+
+        users = auth_manager.list_users()
+        total = len(users)
+        active = sum(1 for user in users if user.get("status") == "Active")
+        admins = sum(1 for user in users if user.get("role") == "admin")
+        regular_users = sum(1 for user in users if user.get("role") == "user")
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("♙", "0", "Total Users"))
-        stats.addWidget(self.stat_card("♢", "0", "Active Users"))
-        stats.addWidget(self.stat_card("✉", "0", "Pending"))
-        stats.addWidget(self.stat_card("⊘", "0", "Inactive"))
+        stats.addWidget(self.stat_card("♙", str(total), "Total Users"))
+        stats.addWidget(self.stat_card("♢", str(active), "Active"))
+        stats.addWidget(self.stat_card("▣", str(admins), "Admins"))
+        stats.addWidget(self.stat_card("▤", str(regular_users), "Users"))
         layout.addLayout(stats)
 
-        layout.addWidget(self.empty_table(["User", "Role", "Files", "Storage", "Joined", "Status"], 430))
+        table = QTableWidget()
+        table.setColumnCount(6)
+        table.setHorizontalHeaderLabels(["Name", "Email", "Role", "Joined", "Last Login", "Status"])
+        table.setRowCount(len(users))
+        table.verticalHeader().setVisible(False)
+        table.setShowGrid(False)
+        table.setMinimumHeight(430)
+        table.setStyleSheet(self.table_style())
+        table.horizontalHeader().setStretchLastSection(True)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        for index in range(1, 6):
+            table.horizontalHeader().setSectionResizeMode(index, QHeaderView.ResizeToContents)
+
+        for row, user in enumerate(users):
+            values = [
+                user.get("full_name", ""),
+                user.get("email", ""),
+                user.get("role", ""),
+                user.get("created_at", ""),
+                user.get("last_login") or "--",
+                user.get("status", ""),
+            ]
+            for col, value in enumerate(values):
+                table.setItem(row, col, QTableWidgetItem(str(value)))
+
+        layout.addWidget(table)
         return page
 
     def files_page_ui(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Files Management", "Monitor and manage all uploaded files"))
+        layout.addLayout(self.topbar("Files Management", "Scan and review files stored on the server"))
+        summary = self.admin_summary()
+        files = summary["files"]
+        folders = {item["folder"] for item in files if item["folder"]}
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("▤", "0", "Total Files"))
-        stats.addWidget(self.stat_card("✓", "0", "Approved"))
-        stats.addWidget(self.stat_card("◷", "0", "Pending"))
-        stats.addWidget(self.stat_card("⊗", "0", "Rejected"))
+        stats.addWidget(self.stat_card("?", str(len(files)), "Total Files"))
+        stats.addWidget(self.stat_card("?", self.format_bytes(summary["storage"]), "Total Size"))
+        stats.addWidget(self.stat_card("?", str(len(folders)), "Subfolders"))
+        stats.addWidget(self.stat_card("?", "Ready", "Storage Status"))
         layout.addLayout(stats)
 
-        layout.addWidget(self.empty_table(["File Name", "User", "Type", "Size", "Uploaded", "Status", "Actions"], 520))
+        rows = [
+            [
+                item["name"],
+                item["folder"] or "Uploads",
+                item["type"],
+                self.format_bytes(item["size"]),
+                item["modified"],
+                "Stored",
+            ]
+            for item in files
+        ]
+        layout.addWidget(self.data_table(["File", "Folder", "Type", "Size", "Modified", "Status"], rows, 520))
         return page
 
     def analytics_page_ui(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Analytics", "Detailed analytics and insights"))
+        layout.addLayout(self.topbar("Analytics", "Analyze actual upload history and storage distribution"))
+        summary = self.admin_summary()
+        history = summary["history"]
+        files = summary["files"]
 
-        layout.addWidget(self.bar_chart_card("System Activity (30 Days)"))
+        stats = QHBoxLayout()
+        stats.setSpacing(30)
+        stats.addWidget(self.stat_card("?", str(len(summary["verified"])), "Verified"))
+        stats.addWidget(self.stat_card("?", str(len(summary["skipped"])), "Skipped"))
+        stats.addWidget(self.stat_card("?", str(len(summary["failed"])), "Failed/Stopped"))
+        stats.addWidget(self.stat_card("?", self.format_bytes(summary["storage"]), "Storage"))
+        layout.addLayout(stats)
+
+        by_status = {}
+        for item in history:
+            status = item.get("status", "Unknown")
+            by_status[status] = by_status.get(status, 0) + 1
+        status_rows = [[status, count] for status, count in sorted(by_status.items())]
+
+        by_type = {}
+        for item in files:
+            file_type = item.get("type", "file")
+            by_type[file_type] = by_type.get(file_type, 0) + 1
+        type_rows = [[file_type, count] for file_type, count in sorted(by_type.items())]
 
         bottom = QHBoxLayout()
         bottom.setSpacing(30)
-        bottom.addWidget(self.small_info_card("User Growth", "No data", "0", "+0%"))
-        bottom.addWidget(self.small_info_card("Upload Statistics", "No files", "0", "files"))
-        bottom.addWidget(self.small_info_card("Storage Distribution", "Used", "0 MB", "0%"))
+        bottom.addWidget(self.data_table(["Status", "Count"], status_rows, 300))
+        bottom.addWidget(self.data_table(["File Type", "Count"], type_rows, 300))
         layout.addLayout(bottom)
 
+        recent_rows = [
+            [
+                item.get("time", ""),
+                item.get("file_name", ""),
+                self.format_bytes(item.get("file_size", 0)),
+                item.get("speed", ""),
+                item.get("status", ""),
+            ]
+            for item in history[:10]
+        ]
+        layout.addWidget(self.data_table(["Time", "File", "Size", "Speed", "Status"], recent_rows, 400))
         return page
 
     def security_page_ui(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Security", "Monitor and manage system security"))
+        layout.addLayout(self.topbar("Security", "Review authentication, role control and account activity"))
+        users = auth_manager.list_users()
+        admins = [user for user in users if user.get("role") == "admin"]
+        active = [user for user in users if user.get("status") == "Active"]
+        logged_in = [user for user in users if user.get("last_login")]
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("⊙", "0", "Active Sessions"))
-        stats.addWidget(self.stat_card("▣", "0", "Failed Logins"))
-        stats.addWidget(self.stat_card("⚠", "0", "Security Alerts"))
-        stats.addWidget(self.stat_card("♢", "0", "Blocked IPs"))
+        stats.addWidget(self.stat_card("?", str(len(active)), "Active Accounts"))
+        stats.addWidget(self.stat_card("?", str(len(admins)), "Admin Accounts"))
+        stats.addWidget(self.stat_card("?", "On", "Password Hashing"))
+        stats.addWidget(self.stat_card("?", "On", "Role Check"))
         layout.addLayout(stats)
 
-        body = QHBoxLayout()
-        body.setSpacing(30)
+        policy_rows = [
+            ["Password storage", "PBKDF2 SHA-256 with random salt", "Enabled"],
+            ["Default admin", "admin@uplower.local", "Seeded"],
+            ["Role protection", "User cannot open Admin Panel", "Enabled"],
+            ["Registration", "Creates User accounts only", "Enabled"],
+            ["Database", auth_manager.db_path, "Ready"],
+        ]
+        layout.addWidget(self.data_table(["Control", "Detail", "Status"], policy_rows, 300))
 
-        settings = QFrame()
-        settings.setMinimumHeight(380)
-        settings.setStyleSheet(self.card_style())
+        activity_rows = [
+            [
+                user.get("full_name", ""),
+                user.get("email", ""),
+                user.get("role", ""),
+                user.get("last_login") or "--",
+                user.get("status", ""),
+            ]
+            for user in users
+        ]
+        layout.addWidget(self.data_table(["User", "Email", "Role", "Last Login", "Status"], activity_rows, 360))
+        return page
 
-        box = QVBoxLayout(settings)
-        box.setContentsMargins(30, 28, 30, 28)
+    def settings_page_ui(self):
+        page, layout = self.page_base()
+        layout.addLayout(self.topbar("Settings", "Review runtime configuration used by the desktop app"))
+        summary = self.admin_summary()
 
-        t = QLabel("Security Settings")
-        t.setStyleSheet("font-size:23px; font-weight:900; border:none; background:transparent;")
-        box.addWidget(t)
+        stats = QHBoxLayout()
+        stats.setSpacing(30)
+        stats.addWidget(self.stat_card("▣", "SQLite", "Auth Database"))
+        stats.addWidget(self.stat_card("▤", str(len(summary["files"])), "Stored Files"))
+        stats.addWidget(self.stat_card("♧", str(len(summary["users"])), "Accounts"))
+        stats.addWidget(self.stat_card("▰", self.format_bytes(summary["storage"]), "Storage"))
+        layout.addLayout(stats)
 
-        for text, checked in [
-            ("Two-Factor Authentication", False),
-            ("IP Whitelist", False),
-            ("Auto-lock Sessions", False),
-            ("Audit Logging", False),
-        ]:
-            row = QFrame()
-            row.setFixedHeight(60)
-            row.setStyleSheet("QFrame { background:#13162a; border:none; border-radius:14px; } QLabel { border:none; background:transparent; }")
-
-            r = QHBoxLayout(row)
-
-            lab = QLabel(text)
-            lab.setStyleSheet("font-size:17px; font-weight:bold; border:none; background:transparent;")
-
-            cb = QCheckBox()
-            cb.setChecked(checked)
-
-            r.addWidget(lab)
-            r.addStretch()
-            r.addWidget(cb)
-
-            box.addWidget(row)
-
-        policy = QFrame()
-        policy.setMinimumHeight(380)
-        policy.setStyleSheet(self.card_style())
-
-        pbox = QVBoxLayout(policy)
-        pbox.setContentsMargins(30, 28, 30, 28)
-
-        pt = QLabel("Password Policy")
-        pt.setStyleSheet("font-size:23px; font-weight:900; border:none; background:transparent;")
-        pbox.addWidget(pt)
-
-        length = QLineEdit()
-        length.setPlaceholderText("Minimum Length")
-
-        expiry = QLineEdit()
-        expiry.setPlaceholderText("Password Expiry (days)")
-
-        for label, inp in [
-            ("Minimum Length", length),
-            ("Password Expiry (days)", expiry),
-        ]:
-            lb = QLabel(label)
-            lb.setStyleSheet("font-size:16px; color:#b5c7e8; border:none; background:transparent;")
-
-            inp.setFixedHeight(52)
-            inp.setStyleSheet(self.input_style())
-
-            pbox.addWidget(lb)
-            pbox.addWidget(inp)
-
-        update = QPushButton("Update Policy")
-        update.setFixedHeight(60)
-        update.setStyleSheet(self.primary_button_style())
-        pbox.addWidget(update)
-
-        body.addWidget(settings)
-        body.addWidget(policy)
-        layout.addLayout(body)
-
-        layout.addWidget(self.empty_table(["Event", "User", "IP Address", "Time", "Severity"], 360))
+        rows = [
+            ["Database", auth_manager.db_path],
+            ["Upload folder", UPLOAD_DIR],
+            ["Default admin email", "admin@uplower.local"],
+            ["Default admin password", "admin123"],
+            ["Client history", "Code/config/client_upload_history.json"],
+            ["Profile data", "Code/config/profile_data.json"],
+        ]
+        layout.addWidget(self.data_table(["Setting", "Value"], rows, 420))
         return page
 
     def stat_card(self, icon, value, label, change=""):
@@ -504,21 +658,36 @@ class AdminUI(QWidget):
 
         box = QVBoxLayout(card)
         box.setContentsMargins(30, 28, 30, 28)
+        box.setSpacing(10)
 
         t = QLabel(title)
         t.setStyleSheet("font-size:23px; font-weight:900; border:none; background:transparent;")
         box.addWidget(t)
 
-        empty = QLabel("Chưa có dữ liệu")
-        empty.setAlignment(Qt.AlignCenter)
-        empty.setStyleSheet("""
-        color:#94a3b8;
-        font-size:18px;
-        padding:40px;
-        border:none;
-        background:transparent;
-        """)
-        box.addWidget(empty)
+        if rows:
+            for item in rows:
+                row = QLabel(str(item))
+                row.setMinimumHeight(34)
+                row.setStyleSheet("""
+                color:#dbeafe;
+                font-size:15px;
+                padding:6px 8px;
+                border:none;
+                background:#13162a;
+                border-radius:8px;
+                """)
+                box.addWidget(row)
+        else:
+            empty = QLabel("Ch?a c? d? li?u")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet("""
+            color:#94a3b8;
+            font-size:18px;
+            padding:40px;
+            border:none;
+            background:transparent;
+            """)
+            box.addWidget(empty)
         box.addStretch()
         return card
 
