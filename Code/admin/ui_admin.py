@@ -451,8 +451,8 @@ class AdminUI(QWidget):
         layout.addLayout(stats)
 
         table = QTableWidget()
-        table.setColumnCount(6)
-        table.setHorizontalHeaderLabels(["Họ tên", "Email", "Vai trò", "Ngày tạo", "Đăng nhập gần nhất", "Trạng thái"])
+        table.setColumnCount(7)
+        table.setHorizontalHeaderLabels(["Họ tên", "Email", "Vai trò", "Ngày tạo", "Đăng nhập gần nhất", "Trạng thái", "Chi tiết"])
         table.setRowCount(len(users))
         table.verticalHeader().setVisible(False)
         table.setShowGrid(False)
@@ -462,7 +462,11 @@ class AdminUI(QWidget):
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         for index in range(1, 6):
             table.horizontalHeader().setSectionResizeMode(index, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
+        table.setColumnWidth(6, 96)
 
+        self.users = users
+        self.users_table = table
         for row, user in enumerate(users):
             values = [
                 user.get("full_name", ""),
@@ -475,8 +479,139 @@ class AdminUI(QWidget):
             for col, value in enumerate(values):
                 table.setItem(row, col, QTableWidgetItem(str(value)))
 
+            detail_item = QTableWidgetItem("Xem")
+            detail_item.setTextAlignment(Qt.AlignCenter)
+            detail_item.setForeground(Qt.white)
+            table.setItem(row, 6, detail_item)
+            table.setRowHeight(row, 44)
+
+        table.cellClicked.connect(
+            lambda row, col: self.open_user_detail_dialog(self.users[row]) if col == 6 else None
+        )
+        table.cellDoubleClicked.connect(
+            lambda row, col: self.open_user_detail_dialog(self.users[row]) if col != 6 else None
+        )
         layout.addWidget(table)
         return page
+
+    def detail_chip(self, label, value):
+        chip = QFrame()
+        chip.setObjectName("DetailChip")
+        chip.setMinimumHeight(88)
+        chip.setStyleSheet(f"""
+        QFrame#DetailChip {{
+            background:#13162a;
+            border:1px solid #26324a;
+            border-radius:14px;
+        }}
+        QFrame#DetailChip:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
+        QLabel {{
+            border:none;
+            background:transparent;
+        }}
+        """)
+        box = QVBoxLayout(chip)
+        box.setContentsMargins(16, 12, 16, 12)
+        box.setSpacing(6)
+
+        label_widget = QLabel(label)
+        label_widget.setStyleSheet(f"font-size:14px; color:{TEXT2}; font-weight:bold;")
+        value_widget = QLabel(str(value))
+        value_widget.setStyleSheet("font-size:18px; color:white; font-weight:900;")
+        value_widget.setWordWrap(True)
+        chip.value_label = value_widget
+
+        box.addWidget(label_widget)
+        box.addWidget(value_widget)
+        return chip
+
+    def open_user_detail_dialog(self, user):
+        email = str(user.get("email", "")).strip().lower()
+        records = [
+            record for record in self.upload_history()
+            if str(record.get("user_email", "")).strip().lower() == email
+        ]
+        verified = [record for record in records if record.get("status") == "Verified"]
+        skipped = [record for record in records if record.get("status") == "Skipped"]
+        total_size = sum(int(record.get("file_size", 0) or 0) for record in verified)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Chi tiết user")
+        dialog.resize(980, 680)
+        dialog.setStyleSheet(f"""
+        QDialog {{
+            background:{BG};
+            color:{TEXT};
+            font-family:Segoe UI, Arial;
+        }}
+        QLabel {{
+            border:none;
+            background:transparent;
+        }}
+        """)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(28, 26, 28, 26)
+        layout.setSpacing(18)
+
+        title = QLabel(user.get("full_name", "") or "Chi tiết user")
+        title.setStyleSheet("font-size:30px; font-weight:900;")
+        subtitle = QLabel(user.get("email", "") or "--")
+        subtitle.setStyleSheet(f"font-size:17px; color:{TEXT2};")
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+
+        account_grid = QHBoxLayout()
+        account_grid.setSpacing(14)
+        for chip in (
+            self.detail_chip("Vai trò", user.get("role", "") or "--"),
+            self.detail_chip("Trạng thái", self.display_account_status(user.get("status"))),
+            self.detail_chip("Ngày tạo", user.get("created_at", "") or "--"),
+            self.detail_chip("Đăng nhập gần nhất", user.get("last_login") or "--"),
+        ):
+            account_grid.addWidget(chip)
+        layout.addLayout(account_grid)
+
+        upload_grid = QHBoxLayout()
+        upload_grid.setSpacing(14)
+        for chip in (
+            self.detail_chip("Tổng upload", str(len(records))),
+            self.detail_chip("Verified", str(len(verified))),
+            self.detail_chip("Skipped", str(len(skipped))),
+            self.detail_chip("Dung lượng", self.format_bytes(total_size)),
+        ):
+            upload_grid.addWidget(chip)
+        layout.addLayout(upload_grid)
+
+        rows = [
+            [
+                record.get("time", ""),
+                record.get("file_name", ""),
+                self.format_bytes(record.get("file_size", 0)),
+                record.get("server", ""),
+                record.get("status", ""),
+            ]
+            for record in records[:5]
+        ]
+
+        recent_title = QLabel("Lịch sử upload gần đây")
+        recent_title.setStyleSheet("font-size:22px; font-weight:900;")
+        layout.addWidget(recent_title)
+        layout.addWidget(self.data_table(["Thời gian", "File", "Dung lượng", "Server", "Trạng thái"], rows, 280))
+
+        close_row = QHBoxLayout()
+        close_row.addStretch()
+        close_btn = QPushButton("Đóng")
+        close_btn.setFixedSize(120, 42)
+        close_btn.setStyleSheet(self.primary_button_style())
+        close_btn.clicked.connect(dialog.close)
+        close_row.addWidget(close_btn)
+        layout.addLayout(close_row)
+
+        dialog.exec_()
 
     def files_page_ui(self):
         page, layout = self.page_base()
@@ -841,6 +976,25 @@ class AdminUI(QWidget):
         QPushButton:hover {{
             border:1px solid {PRIMARY};
             background:#171832;
+        }}
+        QPushButton:pressed {{
+            background:#30174f;
+        }}
+        """
+
+    def small_button_style(self):
+        return f"""
+        QPushButton {{
+            background:{CARD2};
+            color:white;
+            border:1px solid #334155;
+            border-radius:9px;
+            font-size:14px;
+            font-weight:bold;
+        }}
+        QPushButton:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
         }}
         QPushButton:pressed {{
             background:#30174f;
