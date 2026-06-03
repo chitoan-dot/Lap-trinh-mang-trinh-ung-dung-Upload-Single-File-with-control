@@ -51,12 +51,21 @@ python main.py login
 python main.py admin
 ```
 
-`admin` mở Admin Panel của frontend mới. Khi demo đề tài upload, nên ưu tiên chạy `server` và `client`.
+`admin` mở trực tiếp Admin Panel. Khi demo chuẩn, nên dùng `login` ở cả 2 terminal để đi đúng luồng đăng nhập và phân quyền.
 
 ## Cách demo đúng luồng desktop app
 
-Nếu muốn demo đầy đủ hơn, đúng với yêu cầu có desktop app, đăng nhập và phân quyền,
-nên bắt đầu từ màn hình login:
+Khi demo chuẩn, nên mở **2 terminal** để chạy 2 cửa sổ đăng nhập riêng biệt.
+Cả 2 terminal đều chạy màn hình login, sau đó một bên đăng nhập Admin và một bên đăng nhập User.
+
+Terminal 1:
+
+```powershell
+cd Code
+python main.py login
+```
+
+Terminal 2:
 
 ```powershell
 cd Code
@@ -65,33 +74,23 @@ python main.py login
 
 Luồng demo gợi ý:
 
-1. Mở `python main.py login`.
-2. Đăng nhập admin bằng tài khoản mặc định.
-3. Giới thiệu Admin Panel: Dashboard, Users, Files, Analytics, Security, Settings.
-4. Mở cửa sổ Server và bấm `Bắt đầu` để server lắng nghe socket.
-   - Có thể mở bằng tab/chức năng Server trong Admin Panel nếu đang dùng.
-   - Hoặc mở riêng một tiến trình:
+1. Ở Terminal 1, chọn vai trò `Admin` và đăng nhập bằng tài khoản mặc định.
+2. Trong Admin Panel, giới thiệu nhanh các phần: Tổng quan, Tài khoản, File, Phân tích, Bảo mật, Server, Hồ sơ, Cài đặt.
+3. Vào tab `Server` trong Admin Panel và bấm `Bắt đầu` để server lắng nghe socket.
+4. Ở Terminal 2, đăng nhập hoặc đăng ký tài khoản `User`.
+5. User vào tab `Upload file`.
+6. Kiểm tra trạng thái Server bên User. Nếu Admin đã bật Server, User sẽ thấy `Server: Đã kết nối 127.0.0.1:8888`.
+7. User chọn file hoặc kéo thả file vào vùng upload.
+8. Chọn chế độ xử lý file trùng, ví dụ `Bỏ qua nếu file đã có`, rồi bấm `Start`.
+9. Trong lúc upload có thể demo các nút `Pause`, `Resume`, `Stop`.
+10. Sau khi upload xong, quay lại Admin:
+    - Tab `Server`: xem log nhận file.
+    - Tab `File`: xem file đã nhận, người upload và bấm `Mở` để mở file.
+    - Tab `Tài khoản`: bấm `Xem` để xem chi tiết user và lịch sử upload của user đó.
+    - Tab `Phân tích`: xem thống kê theo trạng thái upload và loại file.
 
-```powershell
-cd Code
-python main.py server
-```
-
-5. Mở cửa sổ Client/User để gửi file:
-
-```powershell
-cd Code
-python main.py client
-```
-
-6. Trên Client chọn file, chọn chế độ xử lý file trùng, rồi bấm `Start`.
-7. Trong lúc upload có thể demo các nút `Pause`, `Resume`, `Stop`.
-8. Sau khi upload xong, quay lại Server để xem log, trạng thái xác minh SHA-256 và file đã nhận.
-9. Quay lại Admin Panel để xem danh sách file, thống kê và lịch sử upload.
-
-Giải thích khi demo: đây là mô hình client-server nên Server và Client nên chạy song song.
-Việc có 2 cửa sổ desktop là hợp lý vì Server là tiến trình lắng nghe/quản lý kết nối,
-còn Client là tiến trình người dùng gửi file. `run_project.bat` chỉ là cách mở nhanh 2 cửa sổ này.
+Giải thích khi demo: đây là mô hình client-server nên Admin/Server và User/Client cần chạy song song.
+Admin là bên quản lý và bật Server, còn User là bên gửi file. `run_project.bat` chỉ là chế độ mở nhanh Server + Client để kiểm thử chức năng upload, không phải luồng demo đầy đủ.
 
 ## Tài khoản demo
 
