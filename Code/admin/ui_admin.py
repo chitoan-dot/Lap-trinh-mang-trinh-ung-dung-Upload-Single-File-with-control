@@ -1,7 +1,9 @@
+import json
 import os
 
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap
 from layout.theme import *
 from auth.auth_manager import auth_manager
 from client.upload_history import load_upload_history
@@ -11,6 +13,7 @@ from server.server_monitor_ui import ServerMonitorUI
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UPLOAD_DIR = os.path.join(BASE_DIR, "Uploads")
+PROFILE_FILE = os.path.join(BASE_DIR, "config", "profile_data.json")
 
 
 class AdminUI(QWidget):
@@ -55,6 +58,8 @@ class AdminUI(QWidget):
         self.sidebar = self.create_sidebar()
         self.stack = QStackedWidget()
 
+        self.profile_page = ProfileUI(role="admin", current_user=self.current_user)
+        self.profile_page.profile_saved.connect(self.refresh_account_badge)
         pages = [
             self.dashboard(),
             self.users_page_ui(),
@@ -62,7 +67,7 @@ class AdminUI(QWidget):
             self.analytics_page_ui(),
             self.security_page_ui(),
             ServerMonitorUI(),
-            ProfileUI(role="admin", current_user=self.current_user),
+            self.profile_page,
             self.settings_page_ui(),
         ]
 
@@ -122,7 +127,8 @@ class AdminUI(QWidget):
         logo_row.addStretch()
 
         layout.addLayout(logo_row)
-        layout.addSpacing(28)
+        layout.addWidget(self.account_badge())
+        layout.addSpacing(16)
 
         self.btn_dashboard = self.nav_button("⌂", "Tổng quan")
         self.btn_users = self.nav_button("♧", "Tài khoản")
@@ -155,6 +161,161 @@ class AdminUI(QWidget):
         layout.addWidget(logout)
 
         return side
+
+    def account_badge(self):
+        badge = QFrame()
+        badge.setFixedHeight(78)
+        badge.setStyleSheet(f"""
+        QFrame {{
+            background:#13162a;
+            border:1px solid {BORDER};
+            border-radius:14px;
+        }}
+        QFrame:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
+        QLabel {{
+            border:none;
+            background:transparent;
+        }}
+        """)
+
+        layout = QHBoxLayout(badge)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(12)
+
+        self.sidebar_avatar = QLabel("AD")
+        self.sidebar_avatar.setAlignment(Qt.AlignCenter)
+        self.sidebar_avatar.setFixedSize(42, 42)
+        self.sidebar_avatar.setStyleSheet(f"""
+        QLabel {{
+            background:{GRADIENT};
+            color:white;
+            border-radius:14px;
+            font-size:15px;
+            font-weight:900;
+        }}
+        """)
+        self.apply_sidebar_avatar(self.sidebar_avatar)
+
+        info = QVBoxLayout()
+        info.setSpacing(2)
+        self.sidebar_name = QLabel(self.current_user.get("full_name") or "Admin")
+        self.sidebar_name.setStyleSheet("font-size:15px; font-weight:900; color:white;")
+        self.sidebar_email = QLabel(self.current_user.get("email") or "admin@uplower.local")
+        self.sidebar_email.setStyleSheet(f"font-size:12px; color:{TEXT2};")
+        info.addWidget(self.sidebar_name)
+        info.addWidget(self.sidebar_email)
+
+        layout.addWidget(self.sidebar_avatar)
+        layout.addLayout(info)
+        return badge
+
+    def refresh_account_badge(self):
+        if hasattr(self, "profile_page"):
+            self.sidebar_name.setText(self.profile_page.profile.get("name", "") or self.current_user.get("full_name") or "Admin")
+        self.sidebar_email.setText(self.current_user.get("email") or "admin@uplower.local")
+        self.apply_sidebar_avatar(self.sidebar_avatar)
+
+    def profile_key(self):
+        email = str(self.current_user.get("email", "")).strip().lower()
+        return f"admin:{email}" if email else "admin"
+
+    def current_avatar_path(self):
+        try:
+            if os.path.exists(PROFILE_FILE):
+                with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                profile = data.get(self.profile_key(), data.get("admin", {}))
+                return profile.get("avatar_path", "") if isinstance(profile, dict) else ""
+        except Exception:
+            pass
+        return ""
+
+    def avatar_path_for_user(self, user):
+        role = str(user.get("role", "user")).strip().lower() or "user"
+        email = str(user.get("email", "")).strip().lower()
+        profile_key = f"{role}:{email}" if email else role
+
+        try:
+            if os.path.exists(PROFILE_FILE):
+                with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                profile = data.get(profile_key, data.get(role, {}))
+                return profile.get("avatar_path", "") if isinstance(profile, dict) else ""
+        except Exception:
+            pass
+        return ""
+
+    def avatar_label_for_user(self, user, size=96):
+        role = str(user.get("role", "user")).strip().lower()
+        fallback = "AD" if role == "admin" else "US"
+        avatar = QLabel(fallback)
+        avatar.setAlignment(Qt.AlignCenter)
+        avatar.setFixedSize(size, size)
+
+        avatar_path = self.avatar_path_for_user(user)
+        if avatar_path and os.path.exists(avatar_path):
+            pixmap = QPixmap(avatar_path)
+            if not pixmap.isNull():
+                avatar.setText("")
+                avatar.setPixmap(
+                    pixmap.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                )
+                avatar.setStyleSheet(f"""
+                QLabel {{
+                    background:#111827;
+                    border:2px solid #475569;
+                    border-radius:{size // 2}px;
+                }}
+                """)
+                return avatar
+
+        avatar.setStyleSheet(f"""
+        QLabel {{
+            background:{GRADIENT};
+            color:white;
+            border-radius:{size // 2}px;
+            font-size:30px;
+            font-weight:900;
+        }}
+        """)
+        return avatar
+
+    def apply_sidebar_avatar(self, avatar_label):
+        avatar_path = self.current_avatar_path()
+        if not avatar_path or not os.path.exists(avatar_path):
+            avatar_label.setPixmap(QPixmap())
+            avatar_label.setText("AD")
+            avatar_label.setStyleSheet(f"""
+            QLabel {{
+                background:{GRADIENT};
+                color:white;
+                border-radius:14px;
+                font-size:15px;
+                font-weight:900;
+            }}
+            """)
+            return
+
+        pixmap = QPixmap(avatar_path)
+        if pixmap.isNull():
+            avatar_label.setPixmap(QPixmap())
+            avatar_label.setText("AD")
+            return
+
+        avatar_label.setText("")
+        avatar_label.setPixmap(
+            pixmap.scaled(42, 42, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        )
+        avatar_label.setStyleSheet("""
+        QLabel {
+            background:#111827;
+            border:1px solid #475569;
+            border-radius:14px;
+        }
+        """)
 
     def nav_button(self, icon, text):
         btn = QPushButton(f"{icon}   {text}")
@@ -557,12 +718,21 @@ class AdminUI(QWidget):
         layout.setContentsMargins(28, 26, 28, 26)
         layout.setSpacing(18)
 
+        header = QHBoxLayout()
+        header.setSpacing(18)
+        header.addWidget(self.avatar_label_for_user(user, 96))
+
+        title_box = QVBoxLayout()
+        title_box.setSpacing(6)
         title = QLabel(user.get("full_name", "") or "Chi tiết user")
         title.setStyleSheet("font-size:30px; font-weight:900;")
         subtitle = QLabel(user.get("email", "") or "--")
         subtitle.setStyleSheet(f"font-size:17px; color:{TEXT2};")
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        header.addLayout(title_box)
+        header.addStretch()
+        layout.addLayout(header)
 
         account_grid = QHBoxLayout()
         account_grid.setSpacing(14)

@@ -2,6 +2,7 @@ import json
 import os
 
 from PyQt5.QtWidgets import (
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -13,7 +14,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QPixmap
 
 from client.upload_history import load_upload_history
 from layout.theme import *
@@ -24,6 +26,8 @@ PROFILE_FILE = os.path.join(BASE_DIR, "config", "profile_data.json")
 
 
 class ProfileUI(QWidget):
+    profile_saved = pyqtSignal()
+
     def __init__(self, role="user", current_user=None):
         super().__init__()
         self.role = role
@@ -48,6 +52,10 @@ class ProfileUI(QWidget):
         self.build_ui()
         self.refresh_stats()
 
+    def profile_key(self):
+        email = str(self.current_user.get("email", "")).strip().lower()
+        return f"{self.role}:{email}" if email else self.role
+
     def default_profile(self):
         user_name = self.current_user.get("full_name")
         user_email = self.current_user.get("email")
@@ -59,6 +67,7 @@ class ProfileUI(QWidget):
                 "address": "",
                 "department": "Hệ thống",
                 "position": "Admin",
+                "avatar_path": "",
                 "about": "Quản lý máy chủ nhận tệp và theo dõi các phiên upload.",
             }
         return {
@@ -67,43 +76,41 @@ class ProfileUI(QWidget):
             "phone": "",
             "address": "",
             "department": "Client",
-                "position": "User",
-                "about": "Tài khoản dùng để gửi file lên máy chủ.",
-            }
+            "position": "User",
+            "avatar_path": "",
+            "about": "Tài khoản dùng để gửi file lên máy chủ.",
+        }
 
-    def load_profile(self):
-        data = {}
+    def read_profiles(self):
         try:
             if os.path.exists(PROFILE_FILE):
                 with open(PROFILE_FILE, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
-                    data = loaded if isinstance(loaded, dict) else {}
+                    return loaded if isinstance(loaded, dict) else {}
         except Exception:
-            data = {}
+            pass
+        return {}
 
+    def load_profile(self):
+        data = self.read_profiles()
         profile = self.default_profile()
-        profile.update(data.get(self.role, {}))
+        profile.update(data.get(self.profile_key(), data.get(self.role, {})))
         return profile
 
     def save_profile_data(self):
-        all_profiles = {}
-        try:
-            if os.path.exists(PROFILE_FILE):
-                with open(PROFILE_FILE, "r", encoding="utf-8") as f:
-                    loaded = json.load(f)
-                    all_profiles = loaded if isinstance(loaded, dict) else {}
-        except Exception:
-            all_profiles = {}
+        all_profiles = self.read_profiles()
 
         data = {key: field.text().strip() for key, field in self.inputs.items()}
+        data["avatar_path"] = self.profile.get("avatar_path", "")
         data["about"] = self.about_edit.toPlainText().strip() if self.about_edit else ""
-        all_profiles[self.role] = data
+        all_profiles[self.profile_key()] = data
 
         os.makedirs(os.path.dirname(PROFILE_FILE), exist_ok=True)
         with open(PROFILE_FILE, "w", encoding="utf-8") as f:
             json.dump(all_profiles, f, indent=2, ensure_ascii=False)
         self.profile.update(data)
         self.update_identity()
+        self.profile_saved.emit()
         QMessageBox.information(self, "UPLOWER", "Đã lưu thông tin hồ sơ.")
 
     def build_ui(self):
@@ -152,10 +159,10 @@ class ProfileUI(QWidget):
         box.setAlignment(Qt.AlignCenter)
         box.setSpacing(14)
 
-        avatar = QLabel("AD" if self.role == "admin" else "US")
-        avatar.setAlignment(Qt.AlignCenter)
-        avatar.setFixedSize(150, 150)
-        avatar.setStyleSheet(f"""
+        self.avatar_label = QLabel("AD" if self.role == "admin" else "US")
+        self.avatar_label.setAlignment(Qt.AlignCenter)
+        self.avatar_label.setFixedSize(150, 150)
+        self.avatar_label.setStyleSheet(f"""
         QLabel {{
             background:{GRADIENT};
             color:white;
@@ -164,6 +171,12 @@ class ProfileUI(QWidget):
             font-weight:900;
         }}
         """)
+        self.update_avatar_display()
+
+        choose_avatar_btn = QPushButton("Chọn ảnh")
+        choose_avatar_btn.setFixedSize(130, 38)
+        choose_avatar_btn.setStyleSheet(self.secondary_button_style())
+        choose_avatar_btn.clicked.connect(self.choose_avatar)
 
         self.name_label = QLabel()
         self.name_label.setAlignment(Qt.AlignCenter)
@@ -175,7 +188,8 @@ class ProfileUI(QWidget):
         self.department_label.setAlignment(Qt.AlignCenter)
         self.department_label.setStyleSheet(f"font-size:15px; color:{TEXT2};")
 
-        box.addWidget(avatar)
+        box.addWidget(self.avatar_label)
+        box.addWidget(choose_avatar_btn, alignment=Qt.AlignCenter)
         box.addWidget(self.name_label)
         box.addWidget(self.role_label)
         box.addWidget(self.department_label)
@@ -233,6 +247,19 @@ class ProfileUI(QWidget):
 
         box.addLayout(grid)
         return card
+
+    def choose_avatar(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Chọn ảnh đại diện",
+            "",
+            "Image files (*.png *.jpg *.jpeg *.bmp *.gif)",
+        )
+        if not file_path:
+            return
+
+        self.profile["avatar_path"] = file_path
+        self.update_avatar_display()
 
     def stats_card(self):
         card = QFrame()
@@ -339,6 +366,40 @@ class ProfileUI(QWidget):
             self.name_label.setText(self.profile.get("name", ""))
             self.role_label.setText(self.profile.get("position", self.role.title()))
             self.department_label.setText(self.profile.get("department", ""))
+            self.update_avatar_display()
+
+    def update_avatar_display(self):
+        if not hasattr(self, "avatar_label"):
+            return
+
+        avatar_path = self.profile.get("avatar_path", "")
+        if avatar_path and os.path.exists(avatar_path):
+            pixmap = QPixmap(avatar_path)
+            if not pixmap.isNull():
+                self.avatar_label.setText("")
+                self.avatar_label.setPixmap(
+                    pixmap.scaled(150, 150, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                )
+                self.avatar_label.setStyleSheet("""
+                QLabel {
+                    background:#111827;
+                    border:2px solid #475569;
+                    border-radius:75px;
+                }
+                """)
+                return
+
+        self.avatar_label.setPixmap(QPixmap())
+        self.avatar_label.setText("AD" if self.role == "admin" else "US")
+        self.avatar_label.setStyleSheet(f"""
+        QLabel {{
+            background:{GRADIENT};
+            color:white;
+            border-radius:75px;
+            font-size:42px;
+            font-weight:900;
+        }}
+        """)
 
     def card_style(self):
         return f"""
@@ -389,6 +450,25 @@ class ProfileUI(QWidget):
         }}
         QPushButton:hover {{ background:#ec4899; }}
         QPushButton:pressed {{ background:#c026d3; }}
+        """
+
+    def secondary_button_style(self):
+        return f"""
+        QPushButton {{
+            background:#13162a;
+            color:white;
+            border:1px solid #334155;
+            border-radius:11px;
+            font-size:14px;
+            font-weight:900;
+        }}
+        QPushButton:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
+        QPushButton:pressed {{
+            background:#30174f;
+        }}
         """
 
     def format_bytes(self, value):

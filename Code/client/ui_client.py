@@ -1,9 +1,17 @@
+import json
+import os
+
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap
 from layout.theme import *
 from client.my_uploads_ui import MyUploadsUI
 from client.upload_ui import UploadUI
 from profile.profile_ui import ProfileUI
+
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+PROFILE_FILE = os.path.join(BASE_DIR, "config", "profile_data.json")
 
 
 class ClientUI(QWidget):
@@ -32,10 +40,12 @@ class ClientUI(QWidget):
         self.sidebar = self.create_sidebar()
         self.stack = QStackedWidget()
 
+        self.profile_page = ProfileUI(role="user", current_user=self.current_user)
+        self.profile_page.profile_saved.connect(self.refresh_account_badge)
         pages = [
             UploadUI(current_user=self.current_user),
             MyUploadsUI(current_user=self.current_user),
-            ProfileUI(role="user", current_user=self.current_user),
+            self.profile_page,
         ]
         for page in pages:
             self.stack.addWidget(page)
@@ -117,10 +127,10 @@ class ClientUI(QWidget):
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(12)
 
-        avatar = QLabel("US")
-        avatar.setAlignment(Qt.AlignCenter)
-        avatar.setFixedSize(42, 42)
-        avatar.setStyleSheet(f"""
+        self.sidebar_avatar = QLabel("US")
+        self.sidebar_avatar.setAlignment(Qt.AlignCenter)
+        self.sidebar_avatar.setFixedSize(42, 42)
+        self.sidebar_avatar.setStyleSheet(f"""
         QLabel {{
             background:{GRADIENT};
             color:white;
@@ -129,19 +139,75 @@ class ClientUI(QWidget):
             font-weight:900;
         }}
         """)
+        self.apply_sidebar_avatar(self.sidebar_avatar)
 
         info = QVBoxLayout()
         info.setSpacing(2)
-        name = QLabel(self.current_user.get("full_name") or "User")
-        name.setStyleSheet("font-size:15px; font-weight:900; color:white;")
-        email = QLabel(self.current_user.get("email") or "Chưa đăng nhập")
-        email.setStyleSheet(f"font-size:12px; color:{TEXT2};")
-        info.addWidget(name)
-        info.addWidget(email)
+        self.sidebar_name = QLabel(self.current_user.get("full_name") or "User")
+        self.sidebar_name.setStyleSheet("font-size:15px; font-weight:900; color:white;")
+        self.sidebar_email = QLabel(self.current_user.get("email") or "Chưa đăng nhập")
+        self.sidebar_email.setStyleSheet(f"font-size:12px; color:{TEXT2};")
+        info.addWidget(self.sidebar_name)
+        info.addWidget(self.sidebar_email)
 
-        layout.addWidget(avatar)
+        layout.addWidget(self.sidebar_avatar)
         layout.addLayout(info)
         return badge
+
+    def refresh_account_badge(self):
+        if hasattr(self, "profile_page"):
+            self.sidebar_name.setText(self.profile_page.profile.get("name", "") or self.current_user.get("full_name") or "User")
+        self.sidebar_email.setText(self.current_user.get("email") or "Chưa đăng nhập")
+        self.apply_sidebar_avatar(self.sidebar_avatar)
+
+    def profile_key(self):
+        email = str(self.current_user.get("email", "")).strip().lower()
+        return f"user:{email}" if email else "user"
+
+    def current_avatar_path(self):
+        try:
+            if os.path.exists(PROFILE_FILE):
+                with open(PROFILE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                profile = data.get(self.profile_key(), data.get("user", {}))
+                return profile.get("avatar_path", "") if isinstance(profile, dict) else ""
+        except Exception:
+            pass
+        return ""
+
+    def apply_sidebar_avatar(self, avatar_label):
+        avatar_path = self.current_avatar_path()
+        if not avatar_path or not os.path.exists(avatar_path):
+            avatar_label.setPixmap(QPixmap())
+            avatar_label.setText("US")
+            avatar_label.setStyleSheet(f"""
+            QLabel {{
+                background:{GRADIENT};
+                color:white;
+                border-radius:14px;
+                font-size:15px;
+                font-weight:900;
+            }}
+            """)
+            return
+
+        pixmap = QPixmap(avatar_path)
+        if pixmap.isNull():
+            avatar_label.setPixmap(QPixmap())
+            avatar_label.setText("US")
+            return
+
+        avatar_label.setText("")
+        avatar_label.setPixmap(
+            pixmap.scaled(42, 42, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        )
+        avatar_label.setStyleSheet("""
+        QLabel {
+            background:#111827;
+            border:1px solid #475569;
+            border-radius:14px;
+        }
+        """)
 
     def nav_button(self, icon, text):
         btn = QPushButton(f"{icon}   {text}")
