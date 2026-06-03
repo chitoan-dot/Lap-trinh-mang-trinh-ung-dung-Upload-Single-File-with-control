@@ -159,7 +159,17 @@ class MyUploadsUI(QWidget):
         return card
 
     def card_style(self):
-        return f"QFrame {{ background:{CARD}; border:1px solid {BORDER}; border-radius:18px; }}"
+        return f"""
+        QFrame {{
+            background:{CARD};
+            border:1px solid {BORDER};
+            border-radius:18px;
+        }}
+        QFrame:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
+        """
 
     def button_style(self):
         return f"""
@@ -172,7 +182,8 @@ class MyUploadsUI(QWidget):
             font-weight:bold;
             padding:8px 12px;
         }}
-        QPushButton:hover {{ border:1px solid {PRIMARY}; }}
+        QPushButton:hover {{ border:1px solid {PRIMARY}; background:#171832; }}
+        QPushButton:pressed {{ background:#30174f; }}
         QPushButton:disabled {{ color:#64748b; border:1px solid #26324a; }}
         """
 
@@ -187,7 +198,8 @@ class MyUploadsUI(QWidget):
             font-weight:bold;
             padding:0px;
         }}
-        QPushButton:hover {{ border:1px solid {PRIMARY}; }}
+        QPushButton:hover {{ border:1px solid {PRIMARY}; background:#171832; }}
+        QPushButton:pressed {{ background:#30174f; }}
         QPushButton:disabled {{ color:#64748b; border:1px solid #26324a; }}
         """
 
@@ -211,6 +223,14 @@ class MyUploadsUI(QWidget):
         QTableWidget::item {{
             border:none;
             padding:8px;
+        }}
+        QTableWidget::item:hover {{
+            background:#1f1238;
+            color:white;
+        }}
+        QTableWidget::item:selected {{
+            background:#30174f;
+            color:white;
         }}
         """
 

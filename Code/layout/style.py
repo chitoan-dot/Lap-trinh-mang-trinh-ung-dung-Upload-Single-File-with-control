@@ -13,6 +13,11 @@ QFrame {{
     border:1px solid {BORDER};
     border-radius:18px;
 }}
+
+QFrame:hover {{
+    background:#171832;
+    border:1px solid {PRIMARY};
+}}
 """
 
 INPUT_STYLE = f"""
@@ -37,6 +42,10 @@ QPushButton {{
 
 QPushButton:hover {{
     background:{PINK};
+}}
+
+QPushButton:pressed {{
+    background:#c026d3;
 }}
 """
 

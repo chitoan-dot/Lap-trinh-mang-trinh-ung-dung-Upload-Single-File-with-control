@@ -114,10 +114,22 @@ class RegisterUI(QWidget):
             color:{TEXT};
             font-size:14px;
             font-weight:bold;
+            spacing:8px;
         }}
         QCheckBox::indicator {{
             width:15px;
             height:15px;
+            border:1px solid #334155;
+            border-radius:4px;
+            background:{CARD2};
+        }}
+        QCheckBox::indicator:hover {{
+            border:1px solid {PRIMARY};
+            background:#171832;
+        }}
+        QCheckBox::indicator:checked {{
+            background:{PRIMARY};
+            border:1px solid {PRIMARY};
         }}
         """)
 
@@ -135,6 +147,9 @@ class RegisterUI(QWidget):
         QPushButton:hover {{
             background:#ec4899;
         }}
+        QPushButton:pressed {{
+            background:#c026d3;
+        }}
         """)
         register_btn.clicked.connect(self.register)
 
@@ -150,6 +165,9 @@ class RegisterUI(QWidget):
         }
         QPushButton:hover {
             color:#ec4899;
+        }
+        QPushButton:pressed {
+            color:#c026d3;
         }
         """)
         login_btn.clicked.connect(self.open_login)
@@ -209,6 +227,10 @@ class RegisterUI(QWidget):
             padding-left:14px;
             font-size:15px;
         }}
+        QLineEdit:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
         QLineEdit:focus {{
             border:1px solid {PRIMARY};
         }}
@@ -226,6 +248,13 @@ class RegisterUI(QWidget):
             font-size:15px;
             font-weight:bold;
         }}
+        QPushButton:hover {{
+            background:#3b1760;
+            border:1px solid #ec4899;
+        }}
+        QPushButton:pressed {{
+            background:#4c1d95;
+        }}
         """
 
         normal = f"""
@@ -238,8 +267,12 @@ class RegisterUI(QWidget):
             font-weight:bold;
         }}
         QPushButton:hover {{
+            background:#171832;
             border:1px solid {PRIMARY};
             color:white;
+        }}
+        QPushButton:pressed {{
+            background:#30174f;
         }}
         """
 

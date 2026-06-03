@@ -76,6 +76,10 @@ class UploadUI(QWidget):
                 border:2px dashed {BORDER};
                 border-radius:18px;
             }}
+            QFrame:hover {{
+                background:#111827;
+                border:2px dashed {PRIMARY};
+            }}
         """)
 
         area = QVBoxLayout(upload_area)
@@ -135,6 +139,9 @@ class UploadUI(QWidget):
             }}
             QPushButton:hover {{
                 background:#ec4899;
+            }}
+            QPushButton:pressed {{
+                background:#c026d3;
             }}
         """)
         self.browse_btn.clicked.connect(self.pick_file)
@@ -204,6 +211,10 @@ class UploadUI(QWidget):
                 border:1px solid #334155;
                 border-radius:10px;
                 padding-left:10px;
+            }}
+            QComboBox:hover {{
+                border:1px solid {PRIMARY};
+                background:#171832;
             }}
             QComboBox::drop-down {{
                 border:none;

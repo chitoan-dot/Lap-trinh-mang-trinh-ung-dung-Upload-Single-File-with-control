@@ -145,6 +145,7 @@ class ProfileUI(QWidget):
 
     def identity_card(self):
         card = QFrame()
+        card.setObjectName("ProfileCard")
         card.setMinimumHeight(330)
         card.setStyleSheet(self.card_style())
         box = QVBoxLayout(card)
@@ -183,11 +184,12 @@ class ProfileUI(QWidget):
 
     def form_card(self):
         card = QFrame()
-        card.setMinimumHeight(330)
+        card.setObjectName("ProfileCard")
+        card.setMinimumHeight(360)
         card.setStyleSheet(self.card_style())
         box = QVBoxLayout(card)
-        box.setContentsMargins(30, 28, 30, 28)
-        box.setSpacing(18)
+        box.setContentsMargins(28, 24, 28, 24)
+        box.setSpacing(16)
 
         title = QLabel("Thông tin cá nhân")
         title.setStyleSheet("font-size:24px; font-weight:900;")
@@ -207,22 +209,34 @@ class ProfileUI(QWidget):
         ]
 
         for index, (key, label_text) in enumerate(fields):
+            field = QWidget()
+            field.setStyleSheet("background:transparent; border:none;")
+            field_layout = QVBoxLayout(field)
+            field_layout.setContentsMargins(0, 0, 0, 0)
+            field_layout.setSpacing(6)
+
             label = QLabel(label_text)
+            label.setMinimumHeight(20)
             label.setStyleSheet(f"font-size:15px; color:{TEXT2}; font-weight:bold;")
+
             edit = QLineEdit(self.profile.get(key, ""))
-            edit.setFixedHeight(48)
+            edit.setFixedHeight(46)
             edit.setStyleSheet(self.input_style())
             self.inputs[key] = edit
-            row = index // 2 * 2
+
+            field_layout.addWidget(label)
+            field_layout.addWidget(edit)
+
+            row = index // 2
             col = index % 2
-            grid.addWidget(label, row, col)
-            grid.addWidget(edit, row + 1, col)
+            grid.addWidget(field, row, col)
 
         box.addLayout(grid)
         return card
 
     def stats_card(self):
         card = QFrame()
+        card.setObjectName("ProfileCard")
         card.setMinimumHeight(260)
         card.setStyleSheet(self.card_style())
         box = QVBoxLayout(card)
@@ -243,6 +257,7 @@ class ProfileUI(QWidget):
 
     def about_card(self):
         card = QFrame()
+        card.setObjectName("ProfileCard")
         card.setMinimumHeight(260)
         card.setStyleSheet(self.card_style())
         box = QVBoxLayout(card)
@@ -255,12 +270,20 @@ class ProfileUI(QWidget):
         self.about_edit.setText(self.profile.get("about", ""))
         self.about_edit.setStyleSheet(f"""
         QTextEdit {{
-            background:{CARD2};
+            background:#111827;
             color:{TEXT};
             border:1px solid #334155;
             border-radius:14px;
             padding:14px;
             font-size:16px;
+        }}
+        QTextEdit:hover {{
+            background:#121c2d;
+            border:1px solid #475569;
+        }}
+        QTextEdit:focus {{
+            background:#121c2d;
+            border:1px solid {PRIMARY};
         }}
         """)
         box.addWidget(title)
@@ -269,8 +292,23 @@ class ProfileUI(QWidget):
 
     def stat_row(self, name, value):
         row = QFrame()
+        row.setObjectName("StatRow")
         row.setFixedHeight(48)
-        row.setStyleSheet("background:#13162a; border:none; border-radius:12px;")
+        row.setStyleSheet(f"""
+        QFrame#StatRow {{
+            background:#13162a;
+            border:1px solid transparent;
+            border-radius:12px;
+        }}
+        QFrame#StatRow:hover {{
+            background:#171832;
+            border:1px solid {BORDER};
+        }}
+        QLabel {{
+            border:none;
+            background:transparent;
+        }}
+        """)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(16, 0, 16, 0)
         label = QLabel(name)
@@ -303,19 +341,40 @@ class ProfileUI(QWidget):
             self.department_label.setText(self.profile.get("department", ""))
 
     def card_style(self):
-        return f"QFrame {{ background:{CARD}; border:1px solid {BORDER}; border-radius:18px; }}"
+        return f"""
+        QFrame#ProfileCard {{
+            background:#0f1024;
+            border:1px solid #2d3752;
+            border-radius:18px;
+        }}
+        QFrame#ProfileCard:hover {{
+            background:#111427;
+            border:1px solid #475569;
+        }}
+        QLabel {{
+            border:none;
+            background:transparent;
+        }}
+        """
 
     def input_style(self):
         return f"""
         QLineEdit {{
-            background:{CARD2};
+            background:#111827;
             color:{TEXT};
             border:1px solid #334155;
             border-radius:14px;
             padding-left:14px;
             font-size:16px;
         }}
-        QLineEdit:focus {{ border:1px solid {PRIMARY}; }}
+        QLineEdit:hover {{
+            background:#121c2d;
+            border:1px solid #475569;
+        }}
+        QLineEdit:focus {{
+            background:#121c2d;
+            border:1px solid {PRIMARY};
+        }}
         """
 
     def primary_button_style(self):
@@ -329,6 +388,7 @@ class ProfileUI(QWidget):
             font-weight:900;
         }}
         QPushButton:hover {{ background:#ec4899; }}
+        QPushButton:pressed {{ background:#c026d3; }}
         """
 
     def format_bytes(self, value):

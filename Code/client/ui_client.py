@@ -106,7 +106,12 @@ class ClientUI(QWidget):
             background:transparent; color:{TEXT2}; border:none; border-radius:14px;
             text-align:left; padding-left:22px; font-size:18px; font-weight:bold;
         }}
-        QPushButton:hover {{ background:#1f1238; color:white; }}
+        QPushButton:hover {{
+            background:#1f1238;
+            color:white;
+            border:1px solid {PRIMARY};
+        }}
+        QPushButton:pressed {{ background:#30174f; color:white; }}
         """
 
     def nav_active_style(self):
@@ -261,7 +266,17 @@ class ClientUI(QWidget):
         return card
 
     def card_style(self):
-        return f"QFrame {{ background:{CARD}; border:1px solid {BORDER}; border-radius:18px; }}"
+        return f"""
+        QFrame {{
+            background:{CARD};
+            border:1px solid {BORDER};
+            border-radius:18px;
+        }}
+        QFrame:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
+        """
 
     def input_style(self):
         return f"QLineEdit {{ background:{CARD}; color:{TEXT}; border:1px solid #334155; border-radius:14px; padding-left:16px; font-size:18px; }}"
@@ -269,7 +284,8 @@ class ClientUI(QWidget):
     def icon_btn(self):
         return f"""
         QPushButton {{ background:{CARD}; color:white; border:1px solid #334155; border-radius:14px; font-size:25px; }}
-        QPushButton:hover {{ border:1px solid {PRIMARY}; }}
+        QPushButton:hover {{ border:1px solid {PRIMARY}; background:#171832; }}
+        QPushButton:pressed {{ background:#30174f; }}
         """
 
     def table_style(self):
@@ -277,6 +293,8 @@ class ClientUI(QWidget):
         QTableWidget {{ background:{CARD}; border:1px solid {BORDER}; border-radius:18px; color:white; font-size:17px; }}
         QHeaderView::section {{ background:#13162a; color:#b5c7e8; border:none; padding:14px; font-size:18px; font-weight:bold; }}
         QTableWidget::item {{ border-bottom:1px solid #1f2937; padding:12px; }}
+        QTableWidget::item:hover {{ background:#1f1238; color:white; }}
+        QTableWidget::item:selected {{ background:#30174f; color:white; }}
         """
 
     def logout(self):

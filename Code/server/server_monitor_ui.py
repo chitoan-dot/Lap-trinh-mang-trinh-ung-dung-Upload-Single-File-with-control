@@ -82,10 +82,20 @@ class ServerMonitorUI(QWidget):
             border-radius:18px;
         }}
 
+        QFrame#Card:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
+
         QFrame#StatCard {{
             background:{CARD};
             border:1px solid {BORDER};
             border-radius:18px;
+        }}
+
+        QFrame#StatCard:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
         }}
 
         QFrame#Plain {{
@@ -113,6 +123,16 @@ class ServerMonitorUI(QWidget):
         QTableWidget::item {{
             border:none;
             padding:8px;
+        }}
+
+        QTableWidget::item:hover {{
+            background:#1f1238;
+            color:white;
+        }}
+
+        QTableWidget::item:selected {{
+            background:#30174f;
+            color:white;
         }}
 
         QTextEdit {{
@@ -149,13 +169,17 @@ class ServerMonitorUI(QWidget):
         root.setSpacing(26)
 
         top = QHBoxLayout()
+        top.setSpacing(10)
 
         title_box = QVBoxLayout()
+        title_box.setSpacing(6)
 
         title = QLabel("Máy Chủ Nhận Tệp")
+        title.setWordWrap(True)
+        title.setMinimumWidth(360)
         title.setStyleSheet("""
         QLabel {
-            font-size:36px;
+            font-size:32px;
             font-weight:900;
             color:white;
             border:none;
@@ -164,9 +188,10 @@ class ServerMonitorUI(QWidget):
         """)
 
         subtitle = QLabel("Bật server, theo dõi thiết bị gửi và phiên nhận file")
+        subtitle.setWordWrap(True)
         subtitle.setStyleSheet(f"""
         QLabel {{
-            font-size:18px;
+            font-size:16px;
             color:{TEXT2};
             border:none;
             background:transparent;
@@ -177,14 +202,14 @@ class ServerMonitorUI(QWidget):
         title_box.addWidget(subtitle)
 
         self.host_input = QLineEdit(self.host)
-        self.host_input.setFixedSize(140, 52)
+        self.host_input.setFixedSize(126, 48)
 
         self.port_input = QLineEdit(str(self.port))
-        self.port_input.setFixedSize(110, 52)
+        self.port_input.setFixedSize(90, 48)
 
         self.status_label = QLabel("ĐÃ DỪNG")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setFixedSize(120, 52)
+        self.status_label.setFixedSize(104, 48)
         self.status_label.setStyleSheet("""
         QLabel {
             background:#831843;
@@ -196,17 +221,16 @@ class ServerMonitorUI(QWidget):
         """)
 
         self.start_btn = QPushButton("Bắt đầu")
-        self.start_btn.setFixedSize(120, 52)
+        self.start_btn.setFixedSize(104, 48)
         self.start_btn.setStyleSheet(self.primary_button_style())
         self.start_btn.clicked.connect(self.start_server)
 
         self.stop_btn = QPushButton("Dừng")
-        self.stop_btn.setFixedSize(120, 52)
+        self.stop_btn.setFixedSize(92, 48)
         self.stop_btn.setStyleSheet(self.danger_button_style())
         self.stop_btn.clicked.connect(self.stop_server)
 
-        top.addLayout(title_box)
-        top.addStretch()
+        top.addLayout(title_box, 1)
         top.addWidget(self.host_input)
         top.addWidget(self.port_input)
         top.addWidget(self.status_label)
@@ -357,6 +381,9 @@ class ServerMonitorUI(QWidget):
         QPushButton:hover {{
             background:#ec4899;
         }}
+        QPushButton:pressed {{
+            background:#c026d3;
+        }}
         """
 
     def danger_button_style(self):
@@ -372,6 +399,9 @@ class ServerMonitorUI(QWidget):
         QPushButton:hover {
             background:#dc2626;
         }
+        QPushButton:pressed {
+            background:#b91c1c;
+        }
         """
 
     def control_button_style(self):
@@ -386,6 +416,10 @@ class ServerMonitorUI(QWidget):
         }}
         QPushButton:hover {{
             border:1px solid {PRIMARY};
+            background:#171832;
+        }}
+        QPushButton:pressed {{
+            background:#30174f;
         }}
         """
 

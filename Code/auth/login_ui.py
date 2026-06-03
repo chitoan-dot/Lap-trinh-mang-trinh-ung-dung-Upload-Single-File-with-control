@@ -57,6 +57,10 @@ class LoginUI(QWidget):
             padding-left:14px;
             font-size:15px;
         }}
+        QLineEdit:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
         QLineEdit:focus {{
             border:1px solid {PRIMARY};
         }}
@@ -72,6 +76,12 @@ class LoginUI(QWidget):
             font-size:16px;
             font-weight:bold;
         }}
+        QPushButton:hover {{
+            background:#ec4899;
+        }}
+        QPushButton:pressed {{
+            background:#c026d3;
+        }}
         """
 
     def link_button_style(self):
@@ -82,6 +92,12 @@ class LoginUI(QWidget):
             color:#d66cff;
             font-size:15px;
             font-weight:bold;
+        }
+        QPushButton:hover {
+            color:#ec4899;
+        }
+        QPushButton:pressed {
+            color:#c026d3;
         }
         """
 
@@ -95,6 +111,13 @@ class LoginUI(QWidget):
                 border-radius:14px;
                 font-weight:bold;
             }}
+            QPushButton:hover {{
+                background:#3b1760;
+                border:1px solid #ec4899;
+            }}
+            QPushButton:pressed {{
+                background:#4c1d95;
+            }}
             """
         return f"""
         QPushButton {{
@@ -103,6 +126,14 @@ class LoginUI(QWidget):
             border:1px solid #334155;
             border-radius:14px;
             font-weight:bold;
+        }}
+        QPushButton:hover {{
+            background:#171832;
+            color:white;
+            border:1px solid {PRIMARY};
+        }}
+        QPushButton:pressed {{
+            background:#30174f;
         }}
         """
 
@@ -207,10 +238,31 @@ class LoginUI(QWidget):
         self.login_password.setEchoMode(QLineEdit.Password)
         self.login_password.setFixedHeight(50)
         self.login_password.setStyleSheet(self.input_style())
+        self.login_password.returnPressed.connect(self.open_app)
 
         option_row = QHBoxLayout()
         self.remember_checkbox = QCheckBox("Ghi nhớ đăng nhập")
-        self.remember_checkbox.setStyleSheet("font-weight:bold;")
+        self.remember_checkbox.setStyleSheet(f"""
+        QCheckBox {{
+            font-weight:bold;
+            spacing:8px;
+        }}
+        QCheckBox::indicator {{
+            width:16px;
+            height:16px;
+            border:1px solid #334155;
+            border-radius:4px;
+            background:{CARD2};
+        }}
+        QCheckBox::indicator:hover {{
+            border:1px solid {PRIMARY};
+            background:#171832;
+        }}
+        QCheckBox::indicator:checked {{
+            background:{PRIMARY};
+            border:1px solid {PRIMARY};
+        }}
+        """)
 
         forgot = QPushButton("Quên mật khẩu?")
         forgot.setStyleSheet(self.link_button_style())
@@ -236,6 +288,13 @@ class LoginUI(QWidget):
             border:1px solid #334155;
             border-radius:12px;
             font-weight:bold;
+        }}
+        QPushButton:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
+        QPushButton:pressed {{
+            background:#30174f;
         }}
         """)
 
@@ -291,7 +350,27 @@ class LoginUI(QWidget):
 
         self.agree = QCheckBox("Tôi đồng ý với Điều khoản sử dụng và Chính sách bảo mật")
         self.agree.setMinimumHeight(28)
-        self.agree.setStyleSheet("font-weight:bold;")
+        self.agree.setStyleSheet(f"""
+        QCheckBox {{
+            font-weight:bold;
+            spacing:8px;
+        }}
+        QCheckBox::indicator {{
+            width:16px;
+            height:16px;
+            border:1px solid #334155;
+            border-radius:4px;
+            background:{CARD2};
+        }}
+        QCheckBox::indicator:hover {{
+            border:1px solid {PRIMARY};
+            background:#171832;
+        }}
+        QCheckBox::indicator:checked {{
+            background:{PRIMARY};
+            border:1px solid {PRIMARY};
+        }}
+        """)
 
         register_btn = QPushButton("Đăng ký")
         register_btn.setFixedHeight(46)

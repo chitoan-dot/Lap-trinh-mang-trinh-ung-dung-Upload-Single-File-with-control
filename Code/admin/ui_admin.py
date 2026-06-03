@@ -178,6 +178,11 @@ class AdminUI(QWidget):
         QPushButton:hover {{
             background:#171b2d;
             color:white;
+            border:1px solid {PRIMARY};
+        }}
+        QPushButton:pressed {{
+            background:#30174f;
+            color:white;
         }}
         """
 
@@ -362,10 +367,10 @@ class AdminUI(QWidget):
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("?", str(len(users)), "Tổng user"))
-        stats.addWidget(self.stat_card("?", str(len(files)), "File đã lưu"))
-        stats.addWidget(self.stat_card("?", str(len(summary["verified"])), "Upload verified"))
-        stats.addWidget(self.stat_card("?", self.format_bytes(summary["storage"]), "Dung lượng"))
+        stats.addWidget(self.stat_card("♙", str(len(users)), "Tổng user"))
+        stats.addWidget(self.stat_card("▤", str(len(files)), "File đã lưu"))
+        stats.addWidget(self.stat_card("✓", str(len(summary["verified"])), "Upload verified"))
+        stats.addWidget(self.stat_card("▰", self.format_bytes(summary["storage"]), "Dung lượng"))
         layout.addLayout(stats)
 
         health = QFrame()
@@ -479,10 +484,10 @@ class AdminUI(QWidget):
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        self.files_total_card = self.stat_card("?", "0", "Tổng file")
-        self.files_size_card = self.stat_card("?", "0 B", "Tổng dung lượng")
-        self.files_folders_card = self.stat_card("?", "0", "Thư mục con")
-        self.files_status_card = self.stat_card("?", "Sẵn sàng", "Trạng thái lưu trữ")
+        self.files_total_card = self.stat_card("▤", "0", "Tổng file")
+        self.files_size_card = self.stat_card("▰", "0 B", "Tổng dung lượng")
+        self.files_folders_card = self.stat_card("▣", "0", "Thư mục con")
+        self.files_status_card = self.stat_card("✓", "Sẵn sàng", "Trạng thái lưu trữ")
         for card in (
             self.files_total_card,
             self.files_size_card,
@@ -545,10 +550,10 @@ class AdminUI(QWidget):
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("?", str(len(summary["verified"])), "Verified"))
-        stats.addWidget(self.stat_card("?", str(len(summary["skipped"])), "Skipped"))
-        stats.addWidget(self.stat_card("?", str(len(summary["failed"])), "Failed/Stopped"))
-        stats.addWidget(self.stat_card("?", self.format_bytes(summary["storage"]), "Dung lượng"))
+        stats.addWidget(self.stat_card("✓", str(len(summary["verified"])), "Verified"))
+        stats.addWidget(self.stat_card("↷", str(len(summary["skipped"])), "Skipped"))
+        stats.addWidget(self.stat_card("✕", str(len(summary["failed"])), "Failed/Stopped"))
+        stats.addWidget(self.stat_card("▰", self.format_bytes(summary["storage"]), "Dung lượng"))
         layout.addLayout(stats)
 
         by_status = {}
@@ -592,10 +597,10 @@ class AdminUI(QWidget):
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("?", str(len(active)), "Tài khoản hoạt động"))
-        stats.addWidget(self.stat_card("?", str(len(admins)), "Tài khoản admin"))
-        stats.addWidget(self.stat_card("?", "Bật", "Hash mật khẩu"))
-        stats.addWidget(self.stat_card("?", "Bật", "Kiểm tra vai trò"))
+        stats.addWidget(self.stat_card("✓", str(len(active)), "Tài khoản hoạt động"))
+        stats.addWidget(self.stat_card("♙", str(len(admins)), "Tài khoản admin"))
+        stats.addWidget(self.stat_card("◆", "Bật", "Hash mật khẩu"))
+        stats.addWidget(self.stat_card("◇", "Bật", "Kiểm tra vai trò"))
         layout.addLayout(stats)
 
         policy_rows = [
@@ -813,6 +818,11 @@ class AdminUI(QWidget):
             border-radius:18px;
         }}
 
+        QFrame:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
+
         QLabel {{
             border:none;
             background:transparent;
@@ -830,6 +840,10 @@ class AdminUI(QWidget):
         }}
         QPushButton:hover {{
             border:1px solid {PRIMARY};
+            background:#171832;
+        }}
+        QPushButton:pressed {{
+            background:#30174f;
         }}
         """
 
@@ -871,6 +885,9 @@ class AdminUI(QWidget):
         QPushButton:hover {{
             background:#ec4899;
         }}
+        QPushButton:pressed {{
+            background:#c026d3;
+        }}
         """
 
     def table_style(self):
@@ -894,6 +911,14 @@ class AdminUI(QWidget):
         QTableWidget::item {{
             border:none;
             padding:12px;
+        }}
+        QTableWidget::item:hover {{
+            background:#1f1238;
+            color:white;
+        }}
+        QTableWidget::item:selected {{
+            background:#30174f;
+            color:white;
         }}
         """
 

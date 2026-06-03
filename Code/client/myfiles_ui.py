@@ -96,6 +96,16 @@ class MyFilesUI(QWidget):
 
         }}
 
+        QTableWidget::item:hover {{
+            background:#1f1238;
+            color:white;
+        }}
+
+        QTableWidget::item:selected {{
+            background:#30174f;
+            color:white;
+        }}
+
         QHeaderView::section {{
 
             background:{INPUT};
