@@ -72,7 +72,8 @@ class ClientUI(QWidget):
         logo_row.addLayout(text_box)
         logo_row.addStretch()
         layout.addLayout(logo_row)
-        layout.addSpacing(25)
+        layout.addWidget(self.account_badge())
+        layout.addSpacing(16)
 
         self.btn_upload = self.nav_button("⇧", "Upload file")
         self.btn_myuploads = self.nav_button("▤", "Lịch sử upload")
@@ -92,6 +93,55 @@ class ClientUI(QWidget):
         logout.clicked.connect(self.logout)
         layout.addWidget(logout)
         return side
+
+    def account_badge(self):
+        badge = QFrame()
+        badge.setFixedHeight(78)
+        badge.setStyleSheet(f"""
+        QFrame {{
+            background:#13162a;
+            border:1px solid {BORDER};
+            border-radius:14px;
+        }}
+        QFrame:hover {{
+            background:#171832;
+            border:1px solid {PRIMARY};
+        }}
+        QLabel {{
+            border:none;
+            background:transparent;
+        }}
+        """)
+
+        layout = QHBoxLayout(badge)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(12)
+
+        avatar = QLabel("US")
+        avatar.setAlignment(Qt.AlignCenter)
+        avatar.setFixedSize(42, 42)
+        avatar.setStyleSheet(f"""
+        QLabel {{
+            background:{GRADIENT};
+            color:white;
+            border-radius:14px;
+            font-size:15px;
+            font-weight:900;
+        }}
+        """)
+
+        info = QVBoxLayout()
+        info.setSpacing(2)
+        name = QLabel(self.current_user.get("full_name") or "User")
+        name.setStyleSheet("font-size:15px; font-weight:900; color:white;")
+        email = QLabel(self.current_user.get("email") or "Chưa đăng nhập")
+        email.setStyleSheet(f"font-size:12px; color:{TEXT2};")
+        info.addWidget(name)
+        info.addWidget(email)
+
+        layout.addWidget(avatar)
+        layout.addLayout(info)
+        return badge
 
     def nav_button(self, icon, text):
         btn = QPushButton(f"{icon}   {text}")
@@ -162,6 +212,16 @@ class ClientUI(QWidget):
         bell = QPushButton("♧")
         bell.setFixedSize(54, 54)
         bell.setStyleSheet(self.icon_btn())
+        user_info = QVBoxLayout()
+        user_info.setSpacing(2)
+        user_name = QLabel(self.current_user.get("full_name") or "User")
+        user_name.setAlignment(Qt.AlignRight)
+        user_name.setStyleSheet("font-size:15px; font-weight:900; color:white; border:none; background:transparent;")
+        user_email = QLabel(self.current_user.get("email") or "")
+        user_email.setAlignment(Qt.AlignRight)
+        user_email.setStyleSheet(f"font-size:12px; color:{TEXT2}; border:none; background:transparent;")
+        user_info.addWidget(user_name)
+        user_info.addWidget(user_email)
         user = QPushButton("♙")
         user.setFixedSize(62, 62)
         user.setStyleSheet(f"""
@@ -171,6 +231,7 @@ class ClientUI(QWidget):
         row.addStretch()
         row.addWidget(search)
         row.addWidget(bell)
+        row.addLayout(user_info)
         row.addWidget(user)
         return row
 

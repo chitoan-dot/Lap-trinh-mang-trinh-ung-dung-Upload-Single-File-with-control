@@ -632,7 +632,18 @@ class AdminUI(QWidget):
             stats.addWidget(card)
         layout.addLayout(stats)
 
-        self.files_table = self.data_table(["File", "Thư mục", "Người upload", "Loại", "Dung lượng", "Cập nhật", "Trạng thái"], [], 520)
+        self.files_table = self.data_table(
+            ["File", "Thư mục", "Người upload", "Loại", "Dung lượng", "Cập nhật", "Trạng thái", "Mở"],
+            [],
+            520,
+        )
+        self.files_table.cellClicked.connect(self.open_admin_file_from_table)
+        self.files_table.horizontalHeader().setStretchLastSection(False)
+        self.files_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        for index in range(1, 7):
+            self.files_table.horizontalHeader().setSectionResizeMode(index, QHeaderView.ResizeToContents)
+        self.files_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Fixed)
+        self.files_table.setColumnWidth(7, 72)
         layout.addWidget(self.files_table)
         self.refresh_files_page()
         return page
@@ -667,14 +678,37 @@ class AdminUI(QWidget):
                 self.format_bytes(item["size"]),
                 item["modified"],
                 "Đã lưu",
+                "Mở",
             ]
             for item in files
         ]
 
+        self.files_rows = files
         self.files_table.setRowCount(len(rows))
         for row_index, row_values in enumerate(rows):
             for col_index, value in enumerate(row_values):
-                self.files_table.setItem(row_index, col_index, QTableWidgetItem(str(value)))
+                table_item = QTableWidgetItem(str(value))
+                if col_index == 7:
+                    table_item.setTextAlignment(Qt.AlignCenter)
+                    table_item.setForeground(Qt.white)
+                self.files_table.setItem(row_index, col_index, table_item)
+
+    def open_admin_file_from_table(self, row, column):
+        if column != 7:
+            return
+        files = getattr(self, "files_rows", [])
+        if row < 0 or row >= len(files):
+            return
+
+        file_path = files[row].get("path", "")
+        if not file_path or not os.path.exists(file_path):
+            QMessageBox.warning(self, "UPLOWER", "Không tìm thấy file trên Server.")
+            return
+
+        try:
+            os.startfile(file_path)
+        except Exception as e:
+            QMessageBox.warning(self, "UPLOWER", f"Không thể mở file: {e}")
 
     def analytics_page_ui(self):
         page, layout = self.page_base()
