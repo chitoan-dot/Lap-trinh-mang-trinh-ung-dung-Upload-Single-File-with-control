@@ -22,7 +22,7 @@ class StatisticsUI(QWidget):
         layout.setContentsMargins(35, 35, 35, 35)
         layout.setSpacing(20)
 
-        title = QLabel("Statistics")
+        title = QLabel("Thống kê")
         title.setStyleSheet(f"""
             font-size:28px;
             font-weight:bold;
@@ -59,11 +59,11 @@ class StatisticsUI(QWidget):
         """)
 
         chart_text = QLabel(
-            "Mon  ███████  42%\n"
-            "Tue  ██████████  65%\n"
-            "Wed  █████  35%\n"
-            "Thu  ████████████  82%\n"
-            "Fri  ████████  56%"
+            "Thứ 2  ███████  42%\n"
+            "Thứ 3  ██████████  65%\n"
+            "Thứ 4  █████  35%\n"
+            "Thứ 5  ████████████  82%\n"
+            "Thứ 6  ████████  56%"
         )
         chart_text.setStyleSheet(f"""
             color:{TEXT2};

@@ -124,14 +124,14 @@ class AdminUI(QWidget):
         layout.addLayout(logo_row)
         layout.addSpacing(28)
 
-        self.btn_dashboard = self.nav_button("⌂", "Dashboard")
-        self.btn_users = self.nav_button("♧", "Users")
-        self.btn_files = self.nav_button("▤", "Files")
-        self.btn_analytics = self.nav_button("▥", "Analytics")
-        self.btn_security = self.nav_button("♢", "Security")
+        self.btn_dashboard = self.nav_button("⌂", "Tổng quan")
+        self.btn_users = self.nav_button("♧", "Tài khoản")
+        self.btn_files = self.nav_button("▤", "File")
+        self.btn_analytics = self.nav_button("▥", "Phân tích")
+        self.btn_security = self.nav_button("♢", "Bảo mật")
         self.btn_server = self.nav_button("▣", "Server")
-        self.btn_profile = self.nav_button("♡", "Hồ Sơ")
-        self.btn_settings = self.nav_button("⚙", "Settings")
+        self.btn_profile = self.nav_button("♡", "Hồ sơ")
+        self.btn_settings = self.nav_button("⚙", "Cài đặt")
 
         buttons = [
             (self.btn_dashboard, 0),
@@ -150,7 +150,7 @@ class AdminUI(QWidget):
 
         layout.addStretch()
 
-        logout = self.nav_button("↪", "Logout")
+        logout = self.nav_button("↪", "Đăng xuất")
         logout.clicked.connect(self.logout)
         layout.addWidget(logout)
 
@@ -202,6 +202,8 @@ class AdminUI(QWidget):
         btn.setStyleSheet(self.nav_active_style())
         self.current_btn = btn
         self.stack.setCurrentIndex(index)
+        if index == 2:
+            self.refresh_files_page()
         page = self.stack.currentWidget()
         if hasattr(page, "refresh_history"):
             page.refresh_history()
@@ -284,6 +286,9 @@ class AdminUI(QWidget):
         except Exception:
             return "--"
 
+    def display_account_status(self, status):
+        return "Hoạt động" if status == "Active" else str(status or "--")
+
     def page_base(self):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -313,7 +318,7 @@ class AdminUI(QWidget):
         left.addWidget(p)
 
         search = QLineEdit()
-        search.setPlaceholderText("⌕  Search...")
+        search.setPlaceholderText("⌕  Tìm kiếm...")
         search.setFixedSize(320, 52)
         search.setStyleSheet(self.input_style())
 
@@ -340,7 +345,7 @@ class AdminUI(QWidget):
         row.addWidget(shield)
 
         if add_btn:
-            add = QPushButton("♙  Add User")
+            add = QPushButton("♙  Thêm user")
             add.setFixedSize(150, 52)
             add.setStyleSheet(self.primary_button_style())
             row.addWidget(add)
@@ -349,7 +354,7 @@ class AdminUI(QWidget):
 
     def dashboard(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Admin Dashboard", "Monitor real users, uploads and storage"))
+        layout.addLayout(self.topbar("Tổng quan Admin", "Theo dõi user, phiên upload và dung lượng lưu trữ"))
         summary = self.admin_summary()
         users = summary["users"]
         files = summary["files"]
@@ -357,10 +362,10 @@ class AdminUI(QWidget):
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("?", str(len(users)), "Total Users"))
-        stats.addWidget(self.stat_card("?", str(len(files)), "Stored Files"))
-        stats.addWidget(self.stat_card("?", str(len(summary["verified"])), "Verified Uploads"))
-        stats.addWidget(self.stat_card("?", self.format_bytes(summary["storage"]), "Storage"))
+        stats.addWidget(self.stat_card("?", str(len(users)), "Tổng user"))
+        stats.addWidget(self.stat_card("?", str(len(files)), "File đã lưu"))
+        stats.addWidget(self.stat_card("?", str(len(summary["verified"])), "Upload verified"))
+        stats.addWidget(self.stat_card("?", self.format_bytes(summary["storage"]), "Dung lượng"))
         layout.addLayout(stats)
 
         health = QFrame()
@@ -369,16 +374,16 @@ class AdminUI(QWidget):
         hbox = QVBoxLayout(health)
         hbox.setContentsMargins(30, 28, 30, 28)
 
-        title = QLabel("System Health")
+        title = QLabel("Tình trạng hệ thống")
         title.setStyleSheet("font-size:23px; font-weight:900; border:none; background:transparent;")
         hbox.addWidget(title)
         row = QHBoxLayout()
 
         for name, value in [
-            ("Auth Database", 100 if users else 0),
-            ("Upload Folder", 100 if os.path.isdir(UPLOAD_DIR) else 0),
-            ("History Data", 100 if history else 0),
-            ("Role Control", 100),
+            ("Database xác thực", 100 if users else 0),
+            ("Thư mục upload", 100 if os.path.isdir(UPLOAD_DIR) else 0),
+            ("Dữ liệu lịch sử", 100 if history else 0),
+            ("Phân quyền", 100),
         ]:
             col = QVBoxLayout()
             lab = QLabel(f"{name}                 {value}%")
@@ -405,8 +410,8 @@ class AdminUI(QWidget):
             f"{item.get('file_name', '')} - {item.get('status', '')} - {item.get('time', '')}"
             for item in history[:5]
         ]
-        bottom.addWidget(self.list_card("Recent Users", recent_users))
-        bottom.addWidget(self.list_card("Recent Uploads", recent_uploads))
+        bottom.addWidget(self.list_card("User gần đây", recent_users))
+        bottom.addWidget(self.list_card("Upload gần đây", recent_uploads))
         layout.addLayout(bottom)
 
         activity_rows = [
@@ -419,12 +424,12 @@ class AdminUI(QWidget):
             ]
             for item in history[:8]
         ]
-        layout.addWidget(self.data_table(["Time", "File", "Size", "Server", "Status"], activity_rows, 360))
+        layout.addWidget(self.data_table(["Thời gian", "File", "Dung lượng", "Server", "Trạng thái"], activity_rows, 360))
         return page
 
     def users_page_ui(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Users Management", "Manage registered user and admin accounts"))
+        layout.addLayout(self.topbar("Quản lý tài khoản", "Quản lý tài khoản user và admin đã đăng ký"))
 
         users = auth_manager.list_users()
         total = len(users)
@@ -434,15 +439,15 @@ class AdminUI(QWidget):
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("♙", str(total), "Total Users"))
-        stats.addWidget(self.stat_card("♢", str(active), "Active"))
+        stats.addWidget(self.stat_card("♙", str(total), "Tổng user"))
+        stats.addWidget(self.stat_card("♢", str(active), "Đang hoạt động"))
         stats.addWidget(self.stat_card("▣", str(admins), "Admins"))
         stats.addWidget(self.stat_card("▤", str(regular_users), "Users"))
         layout.addLayout(stats)
 
         table = QTableWidget()
         table.setColumnCount(6)
-        table.setHorizontalHeaderLabels(["Name", "Email", "Role", "Joined", "Last Login", "Status"])
+        table.setHorizontalHeaderLabels(["Họ tên", "Email", "Vai trò", "Ngày tạo", "Đăng nhập gần nhất", "Trạng thái"])
         table.setRowCount(len(users))
         table.verticalHeader().setVisible(False)
         table.setShowGrid(False)
@@ -460,7 +465,7 @@ class AdminUI(QWidget):
                 user.get("role", ""),
                 user.get("created_at", ""),
                 user.get("last_login") or "--",
-                user.get("status", ""),
+                self.display_account_status(user.get("status")),
             ]
             for col, value in enumerate(values):
                 table.setItem(row, col, QTableWidgetItem(str(value)))
@@ -470,36 +475,70 @@ class AdminUI(QWidget):
 
     def files_page_ui(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Files Management", "Scan and review files stored on the server"))
-        summary = self.admin_summary()
-        files = summary["files"]
-        folders = {item["folder"] for item in files if item["folder"]}
+        layout.addLayout(self.topbar("Quản lý file", "Quét và kiểm tra các file đang lưu trên Server"))
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("?", str(len(files)), "Total Files"))
-        stats.addWidget(self.stat_card("?", self.format_bytes(summary["storage"]), "Total Size"))
-        stats.addWidget(self.stat_card("?", str(len(folders)), "Subfolders"))
-        stats.addWidget(self.stat_card("?", "Ready", "Storage Status"))
+        self.files_total_card = self.stat_card("?", "0", "Tổng file")
+        self.files_size_card = self.stat_card("?", "0 B", "Tổng dung lượng")
+        self.files_folders_card = self.stat_card("?", "0", "Thư mục con")
+        self.files_status_card = self.stat_card("?", "Sẵn sàng", "Trạng thái lưu trữ")
+        for card in (
+            self.files_total_card,
+            self.files_size_card,
+            self.files_folders_card,
+            self.files_status_card,
+        ):
+            stats.addWidget(card)
         layout.addLayout(stats)
+
+        self.files_table = self.data_table(["File", "Thư mục", "Người upload", "Loại", "Dung lượng", "Cập nhật", "Trạng thái"], [], 520)
+        layout.addWidget(self.files_table)
+        self.refresh_files_page()
+        return page
+
+    def refresh_files_page(self):
+        if not hasattr(self, "files_table"):
+            return
+
+        summary = self.admin_summary()
+        files = summary["files"]
+        history = summary["history"]
+        folders = {item["folder"] for item in files if item["folder"]}
+        uploader_by_file = {}
+
+        for record in history:
+            file_name = record.get("file_name", "")
+            uploader = record.get("user_name") or record.get("user_email", "")
+            if file_name and uploader and file_name not in uploader_by_file:
+                uploader_by_file[file_name] = uploader
+
+        self.files_total_card.value_label.setText(str(len(files)))
+        self.files_size_card.value_label.setText(self.format_bytes(summary["storage"]))
+        self.files_folders_card.value_label.setText(str(len(folders)))
+        self.files_status_card.value_label.setText("Sẵn sàng")
 
         rows = [
             [
                 item["name"],
                 item["folder"] or "Uploads",
+                uploader_by_file.get(item["name"], "--"),
                 item["type"],
                 self.format_bytes(item["size"]),
                 item["modified"],
-                "Stored",
+                "Đã lưu",
             ]
             for item in files
         ]
-        layout.addWidget(self.data_table(["File", "Folder", "Type", "Size", "Modified", "Status"], rows, 520))
-        return page
+
+        self.files_table.setRowCount(len(rows))
+        for row_index, row_values in enumerate(rows):
+            for col_index, value in enumerate(row_values):
+                self.files_table.setItem(row_index, col_index, QTableWidgetItem(str(value)))
 
     def analytics_page_ui(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Analytics", "Analyze actual upload history and storage distribution"))
+        layout.addLayout(self.topbar("Phân tích", "Phân tích lịch sử upload và phân bố dung lượng lưu trữ"))
         summary = self.admin_summary()
         history = summary["history"]
         files = summary["files"]
@@ -509,7 +548,7 @@ class AdminUI(QWidget):
         stats.addWidget(self.stat_card("?", str(len(summary["verified"])), "Verified"))
         stats.addWidget(self.stat_card("?", str(len(summary["skipped"])), "Skipped"))
         stats.addWidget(self.stat_card("?", str(len(summary["failed"])), "Failed/Stopped"))
-        stats.addWidget(self.stat_card("?", self.format_bytes(summary["storage"]), "Storage"))
+        stats.addWidget(self.stat_card("?", self.format_bytes(summary["storage"]), "Dung lượng"))
         layout.addLayout(stats)
 
         by_status = {}
@@ -526,8 +565,8 @@ class AdminUI(QWidget):
 
         bottom = QHBoxLayout()
         bottom.setSpacing(30)
-        bottom.addWidget(self.data_table(["Status", "Count"], status_rows, 300))
-        bottom.addWidget(self.data_table(["File Type", "Count"], type_rows, 300))
+        bottom.addWidget(self.data_table(["Trạng thái", "Số lượng"], status_rows, 300))
+        bottom.addWidget(self.data_table(["Loại file", "Số lượng"], type_rows, 300))
         layout.addLayout(bottom)
 
         recent_rows = [
@@ -540,12 +579,12 @@ class AdminUI(QWidget):
             ]
             for item in history[:10]
         ]
-        layout.addWidget(self.data_table(["Time", "File", "Size", "Speed", "Status"], recent_rows, 400))
+        layout.addWidget(self.data_table(["Thời gian", "File", "Dung lượng", "Tốc độ", "Trạng thái"], recent_rows, 400))
         return page
 
     def security_page_ui(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Security", "Review authentication, role control and account activity"))
+        layout.addLayout(self.topbar("Bảo mật", "Kiểm tra xác thực, phân quyền và hoạt động tài khoản"))
         users = auth_manager.list_users()
         admins = [user for user in users if user.get("role") == "admin"]
         active = [user for user in users if user.get("status") == "Active"]
@@ -553,20 +592,20 @@ class AdminUI(QWidget):
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("?", str(len(active)), "Active Accounts"))
-        stats.addWidget(self.stat_card("?", str(len(admins)), "Admin Accounts"))
-        stats.addWidget(self.stat_card("?", "On", "Password Hashing"))
-        stats.addWidget(self.stat_card("?", "On", "Role Check"))
+        stats.addWidget(self.stat_card("?", str(len(active)), "Tài khoản hoạt động"))
+        stats.addWidget(self.stat_card("?", str(len(admins)), "Tài khoản admin"))
+        stats.addWidget(self.stat_card("?", "Bật", "Hash mật khẩu"))
+        stats.addWidget(self.stat_card("?", "Bật", "Kiểm tra vai trò"))
         layout.addLayout(stats)
 
         policy_rows = [
-            ["Password storage", "PBKDF2 SHA-256 with random salt", "Enabled"],
-            ["Default admin", "admin@uplower.local", "Seeded"],
-            ["Role protection", "User cannot open Admin Panel", "Enabled"],
-            ["Registration", "Creates User accounts only", "Enabled"],
-            ["Database", auth_manager.db_path, "Ready"],
+            ["Lưu mật khẩu", "PBKDF2 SHA-256 với salt ngẫu nhiên", "Đã bật"],
+            ["Admin mặc định", "admin@uplower.local", "Đã tạo"],
+            ["Bảo vệ vai trò", "User không thể mở Admin Panel", "Đã bật"],
+            ["Đăng ký", "Chỉ tạo tài khoản User", "Đã bật"],
+            ["Database", auth_manager.db_path, "Sẵn sàng"],
         ]
-        layout.addWidget(self.data_table(["Control", "Detail", "Status"], policy_rows, 300))
+        layout.addWidget(self.data_table(["Kiểm soát", "Chi tiết", "Trạng thái"], policy_rows, 300))
 
         activity_rows = [
             [
@@ -574,35 +613,35 @@ class AdminUI(QWidget):
                 user.get("email", ""),
                 user.get("role", ""),
                 user.get("last_login") or "--",
-                user.get("status", ""),
+                self.display_account_status(user.get("status")),
             ]
             for user in users
         ]
-        layout.addWidget(self.data_table(["User", "Email", "Role", "Last Login", "Status"], activity_rows, 360))
+        layout.addWidget(self.data_table(["User", "Email", "Vai trò", "Đăng nhập gần nhất", "Trạng thái"], activity_rows, 360))
         return page
 
     def settings_page_ui(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Settings", "Review runtime configuration used by the desktop app"))
+        layout.addLayout(self.topbar("Cài đặt", "Xem cấu hình runtime đang dùng bởi desktop app"))
         summary = self.admin_summary()
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
-        stats.addWidget(self.stat_card("▣", "SQLite", "Auth Database"))
-        stats.addWidget(self.stat_card("▤", str(len(summary["files"])), "Stored Files"))
-        stats.addWidget(self.stat_card("♧", str(len(summary["users"])), "Accounts"))
-        stats.addWidget(self.stat_card("▰", self.format_bytes(summary["storage"]), "Storage"))
+        stats.addWidget(self.stat_card("▣", "SQLite", "Database xác thực"))
+        stats.addWidget(self.stat_card("▤", str(len(summary["files"])), "File đã lưu"))
+        stats.addWidget(self.stat_card("♧", str(len(summary["users"])), "Tài khoản"))
+        stats.addWidget(self.stat_card("▰", self.format_bytes(summary["storage"]), "Dung lượng"))
         layout.addLayout(stats)
 
         rows = [
             ["Database", auth_manager.db_path],
-            ["Upload folder", UPLOAD_DIR],
-            ["Default admin email", "admin@uplower.local"],
-            ["Default admin password", "admin123"],
-            ["Client history", "Code/config/client_upload_history.json"],
-            ["Profile data", "Code/config/profile_data.json"],
+            ["Thư mục upload", UPLOAD_DIR],
+            ["Email admin mặc định", "admin@uplower.local"],
+            ["Mật khẩu admin mặc định", "admin123"],
+            ["Lịch sử client", "Code/config/client_upload_history.json"],
+            ["Dữ liệu hồ sơ", "Code/config/profile_data.json"],
         ]
-        layout.addWidget(self.data_table(["Setting", "Value"], rows, 420))
+        layout.addWidget(self.data_table(["Cài đặt", "Giá trị"], rows, 420))
         return page
 
     def stat_card(self, icon, value, label, change=""):
@@ -649,6 +688,7 @@ class AdminUI(QWidget):
         box.addWidget(num)
         box.addWidget(name)
 
+        card.value_label = num
         return card
 
     def list_card(self, title, rows):
@@ -678,7 +718,7 @@ class AdminUI(QWidget):
                 """)
                 box.addWidget(row)
         else:
-            empty = QLabel("Ch?a c? d? li?u")
+            empty = QLabel("Chưa có dữ liệu")
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet("""
             color:#94a3b8;

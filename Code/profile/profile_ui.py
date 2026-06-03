@@ -53,13 +53,13 @@ class ProfileUI(QWidget):
         user_email = self.current_user.get("email")
         if self.role == "admin":
             return {
-                "name": user_name or "Administrator",
+                "name": user_name or "Quản trị viên",
                 "email": user_email or "admin@uplower.local",
                 "phone": "",
                 "address": "",
-                "department": "System",
+                "department": "Hệ thống",
                 "position": "Admin",
-                "about": "Quan ly may chu nhan tep va theo doi cac phien upload.",
+                "about": "Quản lý máy chủ nhận tệp và theo dõi các phiên upload.",
             }
         return {
             "name": user_name or "User Demo",
@@ -67,9 +67,9 @@ class ProfileUI(QWidget):
             "phone": "",
             "address": "",
             "department": "Client",
-            "position": "User",
-            "about": "Tai khoan dung de gui file len may chu.",
-        }
+                "position": "User",
+                "about": "Tài khoản dùng để gửi file lên máy chủ.",
+            }
 
     def load_profile(self):
         data = {}
@@ -104,7 +104,7 @@ class ProfileUI(QWidget):
             json.dump(all_profiles, f, indent=2, ensure_ascii=False)
         self.profile.update(data)
         self.update_identity()
-        QMessageBox.information(self, "UPLOWER", "Da luu thong tin ho so.")
+        QMessageBox.information(self, "UPLOWER", "Đã lưu thông tin hồ sơ.")
 
     def build_ui(self):
         root = QVBoxLayout(self)
@@ -113,14 +113,14 @@ class ProfileUI(QWidget):
 
         header = QHBoxLayout()
         title_box = QVBoxLayout()
-        title = QLabel("Ho So Cua Toi" if self.role == "user" else "Ho So Admin")
+        title = QLabel("Hồ sơ của tôi" if self.role == "user" else "Hồ sơ Admin")
         title.setStyleSheet("font-size:36px; font-weight:900;")
-        sub = QLabel("Cap nhat thong tin tai khoan va xem thong ke lien quan")
+        sub = QLabel("Cập nhật thông tin tài khoản và xem thống kê liên quan")
         sub.setStyleSheet(f"font-size:20px; color:{TEXT2};")
         title_box.addWidget(title)
         title_box.addWidget(sub)
 
-        save_btn = QPushButton("Luu Ho So")
+        save_btn = QPushButton("Lưu hồ sơ")
         save_btn.setFixedSize(150, 52)
         save_btn.setStyleSheet(self.primary_button_style())
         save_btn.clicked.connect(self.save_profile_data)
@@ -189,7 +189,7 @@ class ProfileUI(QWidget):
         box.setContentsMargins(30, 28, 30, 28)
         box.setSpacing(18)
 
-        title = QLabel("Thong Tin Ca Nhan")
+        title = QLabel("Thông tin cá nhân")
         title.setStyleSheet("font-size:24px; font-weight:900;")
         box.addWidget(title)
 
@@ -198,12 +198,12 @@ class ProfileUI(QWidget):
         grid.setVerticalSpacing(14)
 
         fields = [
-            ("name", "Ho va ten"),
+            ("name", "Họ và tên"),
             ("email", "Email"),
-            ("phone", "So dien thoai"),
-            ("address", "Dia chi"),
-            ("position", "Chuc vu"),
-            ("department", "Phong ban"),
+            ("phone", "Số điện thoại"),
+            ("address", "Địa chỉ"),
+            ("position", "Chức vụ"),
+            ("department", "Phòng ban"),
         ]
 
         for index, (key, label_text) in enumerate(fields):
@@ -229,14 +229,14 @@ class ProfileUI(QWidget):
         box.setContentsMargins(30, 28, 30, 28)
         box.setSpacing(14)
 
-        title = QLabel("Thong Ke Tai Khoan")
+        title = QLabel("Thống kê tài khoản")
         title.setStyleSheet("font-size:24px; font-weight:900;")
         box.addWidget(title)
 
-        self.stat_uploads = self.stat_row("Total Uploads", "0")
+        self.stat_uploads = self.stat_row("Tổng lượt upload", "0")
         self.stat_success = self.stat_row("Verified", "0")
         self.stat_skipped = self.stat_row("Skipped", "0")
-        self.stat_storage = self.stat_row("Uploaded Size", "0 MB")
+        self.stat_storage = self.stat_row("Dung lượng đã upload", "0 MB")
         for row in (self.stat_uploads, self.stat_success, self.stat_skipped, self.stat_storage):
             box.addWidget(row)
         return card
@@ -249,7 +249,7 @@ class ProfileUI(QWidget):
         box.setContentsMargins(30, 28, 30, 28)
         box.setSpacing(14)
 
-        title = QLabel("Gioi Thieu")
+        title = QLabel("Giới thiệu")
         title.setStyleSheet("font-size:24px; font-weight:900;")
         self.about_edit = QTextEdit()
         self.about_edit.setText(self.profile.get("about", ""))
@@ -284,7 +284,10 @@ class ProfileUI(QWidget):
         return row
 
     def refresh_stats(self):
-        records = load_upload_history()
+        user_email = None
+        if self.role == "user":
+            user_email = self.current_user.get("email", "")
+        records = load_upload_history(user_email)
         verified = [r for r in records if r.get("status") == "Verified"]
         skipped = [r for r in records if r.get("status") == "Skipped"]
         total_size = sum(int(r.get("file_size", 0) or 0) for r in verified)

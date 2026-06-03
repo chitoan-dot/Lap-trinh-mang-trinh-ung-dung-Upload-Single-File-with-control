@@ -21,7 +21,7 @@ REMEMBER_LOGIN_FILE = os.path.join(BASE_DIR, "config", "remember_login.json")
 class LoginUI(QWidget):
     def __init__(self, initial_role="user"):
         super().__init__()
-        self.setWindowTitle("UPLOWER - Auth")
+        self.setWindowTitle("UPLOWER - Xác thực")
         self.resize(1100, 760)
         self.setMinimumSize(900, 760)
 
@@ -180,7 +180,7 @@ class LoginUI(QWidget):
 
         if prefix == "register":
             admin_btn.setEnabled(False)
-            admin_btn.setToolTip("Admin mac dinh do he thong cap. Dang ky moi chi tao User.")
+            admin_btn.setToolTip("Admin mặc định do hệ thống cấp. Đăng ký mới chỉ tạo User.")
 
         setattr(self, f"{prefix}_user_btn", user_btn)
         setattr(self, f"{prefix}_admin_btn", admin_btn)
@@ -194,7 +194,7 @@ class LoginUI(QWidget):
         page, box = self.make_page()
         logo, title, sub = self.header(
             "UPLOWER",
-            "Upload Single File Control System"
+            "Hệ thống Upload Single File có điều khiển"
         )
 
         self.login_email = QLineEdit()
@@ -263,7 +263,7 @@ class LoginUI(QWidget):
     def register_page(self):
         page, box = self.make_page()
         logo, title, sub = self.header(
-            "Đăng Ký Tài Khoản",
+            "Đăng ký tài khoản",
             "Tạo tài khoản mới để sử dụng UPLOWER"
         )
 
@@ -339,11 +339,11 @@ class LoginUI(QWidget):
     def show_register(self):
         self.set_role("user")
         self.stack.setCurrentIndex(1)
-        self.setWindowTitle("UPLOWER - Register")
+        self.setWindowTitle("UPLOWER - Đăng ký")
 
     def show_login(self):
         self.stack.setCurrentIndex(0)
-        self.setWindowTitle("UPLOWER - Login")
+        self.setWindowTitle("UPLOWER - Đăng nhập")
 
     def read_remembered_logins(self):
         try:

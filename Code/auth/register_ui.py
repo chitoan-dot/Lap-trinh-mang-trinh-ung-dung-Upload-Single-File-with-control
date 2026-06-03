@@ -14,7 +14,7 @@ class RegisterUI(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("UPLOWER - Register")
+        self.setWindowTitle("UPLOWER - Đăng ký")
         self.resize(APP_W, APP_H)
         self.setMinimumSize(900, 760)
         self.role = "user"
@@ -73,7 +73,7 @@ class RegisterUI(QWidget):
             font-weight:bold;
         """)
 
-        title = QLabel("Đăng Ký Tài Khoản")
+        title = QLabel("Đăng ký tài khoản")
         title.setAlignment(Qt.AlignCenter)
         title.setMinimumHeight(42)
         title.setStyleSheet("""

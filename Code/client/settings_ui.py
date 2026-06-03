@@ -31,7 +31,7 @@ class SettingsUI(QWidget):
 
         layout.setSpacing(20)
 
-        title = QLabel("Settings")
+        title = QLabel("Cài đặt")
 
         title.setStyleSheet(
             f"""
@@ -109,7 +109,7 @@ class SettingsUI(QWidget):
         btns = QHBoxLayout()
 
         save = QPushButton(
-            "Lưu Cài Đặt"
+            "Lưu cài đặt"
         )
 
         reset = QPushButton(

@@ -30,7 +30,7 @@ class MyFilesUI(QWidget):
 
         layout.setSpacing(18)
 
-        title = QLabel("My Files")
+        title = QLabel("File của tôi")
 
         title.setStyleSheet(
             f"""
@@ -117,7 +117,7 @@ class MyFilesUI(QWidget):
             (
                 "report.pdf",
                 "2.4 MB",
-                "Completed",
+                "Hoàn tất",
                 "26/05/2026",
                 "Tải xuống"
             ),
@@ -125,7 +125,7 @@ class MyFilesUI(QWidget):
             (
                 "video.mp4",
                 "128 MB",
-                "Uploading",
+                "Đang upload",
                 "26/05/2026",
                 "Pause"
             ),
@@ -133,7 +133,7 @@ class MyFilesUI(QWidget):
             (
                 "source.zip",
                 "45 MB",
-                "Paused",
+                "Đã tạm dừng",
                 "25/05/2026",
                 "Resume"
             ),
@@ -141,7 +141,7 @@ class MyFilesUI(QWidget):
             (
                 "image.png",
                 "4 MB",
-                "Completed",
+                "Hoàn tất",
                 "24/05/2026",
                 "Xóa"
             ),
@@ -149,7 +149,7 @@ class MyFilesUI(QWidget):
             (
                 "data.xlsx",
                 "1 MB",
-                "Completed",
+                "Hoàn tất",
                 "24/05/2026",
                 "Mở"
             )

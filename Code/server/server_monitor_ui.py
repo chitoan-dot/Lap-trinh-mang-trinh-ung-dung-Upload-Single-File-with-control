@@ -20,7 +20,7 @@ class ServerMonitorUI(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("UPLOWER - Server Monitor")
+        self.setWindowTitle("UPLOWER - Giám sát Server")
         self.resize(1450, 840)
         self.setMinimumSize(1100, 720)
 
@@ -305,7 +305,7 @@ class ServerMonitorUI(QWidget):
         root.addWidget(self.tabs, 1)
 
         self.update_buttons()
-        self.log_signal.emit("Server monitor sẵn sàng.")
+        self.log_signal.emit("Màn hình Server sẵn sàng.")
 
     def stat_card(self, name, value):
         card = QFrame()

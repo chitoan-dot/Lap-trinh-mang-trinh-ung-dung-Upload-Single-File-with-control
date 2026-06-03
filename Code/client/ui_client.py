@@ -10,7 +10,7 @@ class ClientUI(QWidget):
     def __init__(self, current_user=None):
         super().__init__()
         self.current_user = current_user or {}
-        self.setWindowTitle("UPLOWER - User Portal")
+        self.setWindowTitle("UPLOWER - Cổng User")
         self.resize(1450, 840)
         self.setMinimumSize(1100, 720)
         self.current_btn = None
@@ -33,8 +33,8 @@ class ClientUI(QWidget):
         self.stack = QStackedWidget()
 
         pages = [
-            UploadUI(),
-            MyUploadsUI(),
+            UploadUI(current_user=self.current_user),
+            MyUploadsUI(current_user=self.current_user),
             ProfileUI(role="user", current_user=self.current_user),
         ]
         for page in pages:
@@ -64,7 +64,7 @@ class ClientUI(QWidget):
         text_box = QVBoxLayout()
         title = QLabel("UPLOWER")
         title.setStyleSheet("font-size:25px; font-weight:900; color:#e879f9;")
-        sub = QLabel("User Portal")
+        sub = QLabel("Cổng User")
         sub.setStyleSheet(f"color:{TEXT2}; font-size:14px;")
         text_box.addWidget(title)
         text_box.addWidget(sub)
@@ -74,9 +74,9 @@ class ClientUI(QWidget):
         layout.addLayout(logo_row)
         layout.addSpacing(25)
 
-        self.btn_upload = self.nav_button("⇧", "Upload Files")
-        self.btn_myuploads = self.nav_button("▤", "My Uploads")
-        self.btn_profile = self.nav_button("♡", "Hồ Sơ")
+        self.btn_upload = self.nav_button("⇧", "Upload file")
+        self.btn_myuploads = self.nav_button("▤", "Lịch sử upload")
+        self.btn_profile = self.nav_button("♡", "Hồ sơ")
 
         buttons = [
             (self.btn_upload, 0),
@@ -88,7 +88,7 @@ class ClientUI(QWidget):
             layout.addWidget(btn)
 
         layout.addStretch()
-        logout = self.nav_button("↪", "Logout")
+        logout = self.nav_button("↪", "Đăng xuất")
         logout.clicked.connect(self.logout)
         layout.addWidget(logout)
         return side
@@ -151,7 +151,7 @@ class ClientUI(QWidget):
         left.addWidget(h)
         left.addWidget(p)
         search = QLineEdit()
-        search.setPlaceholderText("⌕  Search...")
+        search.setPlaceholderText("⌕  Tìm kiếm...")
         search.setFixedSize(320, 52)
         search.setStyleSheet(self.input_style())
         bell = QPushButton("♧")
@@ -171,15 +171,15 @@ class ClientUI(QWidget):
 
     def dashboard(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Dashboard", "Theo dõi hoạt động upload file của bạn"))
+        layout.addLayout(self.topbar("Tổng quan", "Theo dõi hoạt động upload file của bạn"))
         grid = QHBoxLayout(); grid.setSpacing(30)
-        grid.addWidget(self.stat_card("⇧", "0", "Total Uploads", "+0%"))
-        grid.addWidget(self.stat_card("✓", "0%", "Success Rate", "+0%"))
-        grid.addWidget(self.stat_card("▤", "0 MB", "Storage Used", "+0 MB"))
-        grid.addWidget(self.stat_card("□", "0", "Active Files", "+0%"))
+        grid.addWidget(self.stat_card("⇧", "0", "Tổng lượt upload", "+0%"))
+        grid.addWidget(self.stat_card("✓", "0%", "Tỷ lệ thành công", "+0%"))
+        grid.addWidget(self.stat_card("▤", "0 MB", "Dung lượng đã dùng", "+0 MB"))
+        grid.addWidget(self.stat_card("□", "0", "File đang hoạt động", "+0%"))
         layout.addLayout(grid)
         body = QHBoxLayout(); body.setSpacing(30)
-        body.addWidget(self.empty_card("Upload Activity", "Chưa có dữ liệu upload"), 1)
+        body.addWidget(self.empty_card("Hoạt động upload", "Chưa có dữ liệu upload"), 1)
         body.addWidget(self.storage_card(), 1)
         layout.addLayout(body)
         layout.addStretch()
@@ -187,10 +187,10 @@ class ClientUI(QWidget):
 
     def my_files(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("My Files", "Manage and organize your uploaded files"))
+        layout.addLayout(self.topbar("File của tôi", "Quản lý các file đã upload"))
         table = QTableWidget()
         table.setColumnCount(6)
-        table.setHorizontalHeaderLabels(["Name", "Type", "Size", "Uploaded", "Status", "Actions"])
+        table.setHorizontalHeaderLabels(["Tên file", "Loại", "Dung lượng", "Thời gian upload", "Trạng thái", "Thao tác"])
         table.setRowCount(0)
         table.verticalHeader().setVisible(False)
         table.setShowGrid(False)
@@ -207,16 +207,16 @@ class ClientUI(QWidget):
 
     def statistics(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Statistics", "View your upload and storage statistics"))
+        layout.addLayout(self.topbar("Thống kê", "Xem thống kê upload và dung lượng lưu trữ"))
         grid = QHBoxLayout(); grid.setSpacing(30)
-        grid.addWidget(self.stat_card("⇧", "0", "Total Uploads", "+0%"))
-        grid.addWidget(self.stat_card("⇩", "0", "Total Downloads", "+0%"))
-        grid.addWidget(self.stat_card("▰", "0 MB", "Storage Used", "+0 MB"))
-        grid.addWidget(self.stat_card("⌁", "0 MB/s", "Avg Upload Speed", "+0 MB/s"))
+        grid.addWidget(self.stat_card("⇧", "0", "Tổng lượt upload", "+0%"))
+        grid.addWidget(self.stat_card("⇩", "0", "Tổng lượt tải xuống", "+0%"))
+        grid.addWidget(self.stat_card("▰", "0 MB", "Dung lượng đã dùng", "+0 MB"))
+        grid.addWidget(self.stat_card("⌁", "0 MB/s", "Tốc độ upload trung bình", "+0 MB/s"))
         layout.addLayout(grid)
         body = QHBoxLayout(); body.setSpacing(30)
-        body.addWidget(self.empty_card("Upload Trend (30 Days)", "Chưa có dữ liệu thống kê"), 1)
-        body.addWidget(self.empty_card("File Type Distribution", "Chưa có dữ liệu phân loại file"), 1)
+        body.addWidget(self.empty_card("Xu hướng upload (30 ngày)", "Chưa có dữ liệu thống kê"), 1)
+        body.addWidget(self.empty_card("Phân bố loại file", "Chưa có dữ liệu phân loại file"), 1)
         layout.addLayout(body)
         return page
 
@@ -244,10 +244,10 @@ class ClientUI(QWidget):
     def storage_card(self):
         card = QFrame(); card.setMinimumHeight(410); card.setStyleSheet(self.card_style())
         box = QVBoxLayout(card); box.setContentsMargins(30, 28, 30, 28)
-        title = QLabel("Storage Usage"); title.setStyleSheet("font-size:24px; font-weight:900; border:none; background:transparent;")
-        circle = QLabel("0%\nUsed"); circle.setAlignment(Qt.AlignCenter); circle.setFixedSize(190, 190)
+        title = QLabel("Dung lượng sử dụng"); title.setStyleSheet("font-size:24px; font-weight:900; border:none; background:transparent;")
+        circle = QLabel("0%\nĐã dùng"); circle.setAlignment(Qt.AlignCenter); circle.setFixedSize(190, 190)
         circle.setStyleSheet("QLabel { border:14px solid #334155; border-radius:95px; font-size:24px; font-weight:800; color:white; background:transparent; }")
-        desc = QLabel("0 MB of 0 MB used"); desc.setAlignment(Qt.AlignCenter)
+        desc = QLabel("Đã dùng 0 MB / 0 MB"); desc.setAlignment(Qt.AlignCenter)
         desc.setStyleSheet("font-size:16px; color:#b5c7e8; border:none; background:transparent;")
         box.addWidget(title); box.addStretch(); box.addWidget(circle, alignment=Qt.AlignCenter); box.addWidget(desc); box.addStretch()
         return card

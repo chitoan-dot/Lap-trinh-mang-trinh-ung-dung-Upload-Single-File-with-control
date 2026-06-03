@@ -19,8 +19,10 @@ from layout.style import PAGE_STYLE
 
 
 class MyUploadsUI(QWidget):
-    def __init__(self):
+    def __init__(self, current_user=None):
         super().__init__()
+        self.current_user = current_user or {}
+        self.user_email = str(self.current_user.get("email", "")).strip().lower()
         self.records = []
         self.setStyleSheet(PAGE_STYLE)
         self.build_ui()
@@ -33,9 +35,9 @@ class MyUploadsUI(QWidget):
 
         top = QHBoxLayout()
         title_box = QVBoxLayout()
-        title = QLabel("My Uploads")
+        title = QLabel("Lịch sử upload")
         title.setStyleSheet("font-size:36px; font-weight:900; border:none;")
-        subtitle = QLabel("Lịch sử các lần gửi file từ client này")
+        subtitle = QLabel("Lịch sử các lần gửi file của tài khoản hiện tại")
         subtitle.setStyleSheet(f"font-size:19px; color:{TEXT2}; border:none;")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -86,7 +88,7 @@ class MyUploadsUI(QWidget):
         layout.addWidget(self.table, 1)
 
     def refresh_history(self):
-        self.records = load_upload_history()
+        self.records = load_upload_history(self.user_email)
         self.table.setRowCount(0)
 
         for row, record in enumerate(self.records):
@@ -123,7 +125,7 @@ class MyUploadsUI(QWidget):
         self.size_card.value_label.setText(self.format_bytes(total_size))
 
     def clear_history(self):
-        clear_upload_history()
+        clear_upload_history(self.user_email)
         self.refresh_history()
 
     def open_local_file(self, index):

@@ -36,8 +36,11 @@ class UploadUI(QWidget):
     status_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, str)
 
-    def __init__(self):
+    def __init__(self, current_user=None):
         super().__init__()
+        self.current_user = current_user or {}
+        self.user_email = str(self.current_user.get("email", "")).strip().lower()
+        self.user_name = str(self.current_user.get("full_name", "")).strip()
         self.selected_file = None
         self.upload_state = "stopped"
         self.upload_thread = None
@@ -59,10 +62,10 @@ class UploadUI(QWidget):
         layout.setContentsMargins(35, 35, 35, 35)
         layout.setSpacing(20)
 
-        title = QLabel("Upload Files")
+        title = QLabel("Upload file")
         title.setStyleSheet(f"color:{TEXT}; font-size:32px; font-weight:900;")
 
-        subtitle = QLabel("Upload single file with Start, Pause, Resume and Stop controls")
+        subtitle = QLabel("Gửi một file lên Server với các nút Start, Pause, Resume và Stop")
         subtitle.setStyleSheet(f"color:{TEXT2}; font-size:17px;")
 
         upload_area = QFrame()
@@ -99,7 +102,7 @@ class UploadUI(QWidget):
             border:none;
         """)
 
-        drop_title = QLabel("Drop file here or click to browse")
+        drop_title = QLabel("Thả file vào đây hoặc bấm để chọn")
         drop_title.setAlignment(Qt.AlignCenter)
         drop_title.setStyleSheet(f"""
             color:{TEXT};
@@ -118,7 +121,7 @@ class UploadUI(QWidget):
             background:transparent;
         """)
 
-        self.browse_btn = QPushButton("Select File")
+        self.browse_btn = QPushButton("Chọn file")
         self.browse_btn.setFixedSize(220, 58)
         self.browse_btn.setCursor(Qt.PointingHandCursor)
         self.browse_btn.setStyleSheet(f"""
@@ -136,7 +139,7 @@ class UploadUI(QWidget):
         """)
         self.browse_btn.clicked.connect(self.pick_file)
 
-        self.info_label = QLabel("File: Chưa chọn file  |  Size: 0 MB  |  Status: Ready")
+        self.info_label = QLabel("File: Chưa chọn file  |  Dung lượng: 0 MB  |  Trạng thái: Sẵn sàng")
         self.info_label.setAlignment(Qt.AlignCenter)
         self.info_label.setStyleSheet("""
             color:#94a3b8;
@@ -260,7 +263,7 @@ class UploadUI(QWidget):
         filename = os.path.basename(file_path)
         size = os.path.getsize(file_path)
         self.file_label.setText(filename)
-        self.info_label.setText(f"File: {filename}  |  Size: {self.format_bytes(size)}  |  Status: Ready")
+        self.info_label.setText(f"File: {filename}  |  Dung lượng: {self.format_bytes(size)}  |  Trạng thái: Sẵn sàng")
         self.progress.setValue(0)
         self.update_buttons()
 
@@ -278,13 +281,13 @@ class UploadUI(QWidget):
     def pause_upload(self):
         if self.upload_state == "uploading":
             self.upload_state = "paused"
-            self.set_status("Paused")
+            self.set_status("Đã tạm dừng")
             self.update_buttons()
 
     def resume_upload(self):
         if self.upload_state == "paused":
             self.upload_state = "uploading"
-            self.set_status("Uploading")
+            self.set_status("Đang upload")
             self.update_buttons()
 
     def stop_upload(self):
@@ -292,7 +295,7 @@ class UploadUI(QWidget):
             self.upload_state = "stopped"
             if self.socket_client:
                 self.socket_client.close()
-            self.set_status("Stopped")
+            self.set_status("Đã dừng")
             self.update_buttons()
 
     def upload_worker(self):
@@ -316,8 +319,16 @@ class UploadUI(QWidget):
 
             if offset >= file_size:
                 manager.receive_verify_status()
-                add_upload_record(file_path, file_size, server_text, "Skipped", message="File already existed on server")
-                self.progress_signal.emit(100, f"File: {file_name}  |  Size: {self.format_bytes(file_size)}  |  Status: Skipped")
+                add_upload_record(
+                    file_path,
+                    file_size,
+                    server_text,
+                    "Skipped",
+                    message="File already existed on server",
+                    user_email=self.user_email,
+                    user_name=self.user_name,
+                )
+                self.progress_signal.emit(100, f"File: {file_name}  |  Dung lượng: {self.format_bytes(file_size)}  |  Trạng thái: Skipped")
                 self.finished_signal.emit(True, "File đã có trên server và đã được xác minh.")
                 return
 
@@ -332,8 +343,8 @@ class UploadUI(QWidget):
                     delta = sent - last_sent
                     speed = delta / max(now - last_time, 0.001)
                     text = (
-                        f"File: {file_name}  |  Size: {self.format_bytes(file_size)}  |  "
-                        f"Status: Uploading {percent}%  |  Speed: {self.format_bytes(speed)}/s"
+                        f"File: {file_name}  |  Dung lượng: {self.format_bytes(file_size)}  |  "
+                        f"Trạng thái: Đang upload {percent}%  |  Tốc độ: {self.format_bytes(speed)}/s"
                     )
                     self.progress_signal.emit(percent, text)
                     last_time = now
@@ -349,24 +360,56 @@ class UploadUI(QWidget):
             )
 
             if self.upload_state == "stopped":
-                add_upload_record(file_path, file_size, server_text, "Stopped", message="Upload stopped by user")
+                add_upload_record(
+                    file_path,
+                    file_size,
+                    server_text,
+                    "Stopped",
+                    message="Upload stopped by user",
+                    user_email=self.user_email,
+                    user_name=self.user_name,
+                )
                 self.finished_signal.emit(False, "Đã dừng upload.")
             else:
                 manager.receive_verify_status()
                 elapsed = max(time.time() - start_time, 1)
                 avg_speed = file_size / elapsed
                 speed_text = f"{self.format_bytes(avg_speed)}/s"
-                add_upload_record(file_path, file_size, server_text, "Verified", speed=speed_text)
+                add_upload_record(
+                    file_path,
+                    file_size,
+                    server_text,
+                    "Verified",
+                    speed=speed_text,
+                    user_email=self.user_email,
+                    user_name=self.user_name,
+                )
                 self.progress_signal.emit(
                     100,
-                    f"File: {file_name}  |  Size: {self.format_bytes(file_size)}  |  Status: Verified  |  Avg: {speed_text}"
+                    f"File: {file_name}  |  Dung lượng: {self.format_bytes(file_size)}  |  Trạng thái: Verified  |  Trung bình: {speed_text}"
                 )
                 self.finished_signal.emit(True, "Upload file thành công và checksum đã khớp.")
         except Exception as e:
             if self.upload_state == "stopped":
-                add_upload_record(file_path, file_size, server_text, "Stopped", message="Upload stopped by user")
+                add_upload_record(
+                    file_path,
+                    file_size,
+                    server_text,
+                    "Stopped",
+                    message="Upload stopped by user",
+                    user_email=self.user_email,
+                    user_name=self.user_name,
+                )
             else:
-                add_upload_record(file_path, file_size, server_text, "Failed", message=str(e))
+                add_upload_record(
+                    file_path,
+                    file_size,
+                    server_text,
+                    "Failed",
+                    message=str(e),
+                    user_email=self.user_email,
+                    user_name=self.user_name,
+                )
             self.finished_signal.emit(False, f"Upload thất bại: {e}")
         finally:
             if self.socket_client:
@@ -381,7 +424,7 @@ class UploadUI(QWidget):
 
     def set_status(self, status):
         if self.selected_file:
-            self.info_label.setText(f"File: {os.path.basename(self.selected_file)}  |  Status: {status}")
+            self.info_label.setText(f"File: {os.path.basename(self.selected_file)}  |  Trạng thái: {status}")
 
     def on_finished(self, success, message):
         self.upload_state = "stopped"

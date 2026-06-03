@@ -78,15 +78,15 @@ class AuthManager:
         role = (role or "user").strip().lower()
 
         if not full_name:
-            raise ValueError("Vui long nhap ho va ten.")
+            raise ValueError("Vui lòng nhập họ và tên.")
         if not email or "@" not in email:
-            raise ValueError("Email khong hop le.")
+            raise ValueError("Email không hợp lệ.")
         if role not in ("user", "admin"):
-            raise ValueError("Vai tro khong hop le.")
+            raise ValueError("Vai trò không hợp lệ.")
         if len(password or "") < 4:
-            raise ValueError("Mat khau phai co it nhat 4 ky tu.")
+            raise ValueError("Mật khẩu phải có ít nhất 4 ký tự.")
         if self.get_user_by_email(email):
-            raise ValueError("Email nay da ton tai.")
+            raise ValueError("Email này đã tồn tại.")
 
         password_hash, salt = self.hash_password(password)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -104,13 +104,13 @@ class AuthManager:
     def authenticate(self, email, password, expected_role=None):
         user = self.get_user_by_email(email)
         if not user:
-            raise ValueError("Tai khoan khong ton tai.")
+            raise ValueError("Tài khoản không tồn tại.")
         if expected_role and user["role"] != expected_role:
-            raise ValueError("Tai khoan khong dung vai tro da chon.")
+            raise ValueError("Tài khoản không đúng vai trò đã chọn.")
         if user["status"] != "Active":
-            raise ValueError("Tai khoan dang bi khoa.")
+            raise ValueError("Tài khoản đang bị khóa.")
         if not self.verify_password(password, user["password_hash"], user["salt"]):
-            raise ValueError("Mat khau khong dung.")
+            raise ValueError("Mật khẩu không đúng.")
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with self.connect() as conn:
