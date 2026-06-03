@@ -281,6 +281,6 @@ class ClientUI(QWidget):
 
     def logout(self):
         from auth.login_ui import LoginUI
-        self.login_window = LoginUI()
+        self.login_window = LoginUI(initial_role="user")
         self.login_window.show()
         self.close()

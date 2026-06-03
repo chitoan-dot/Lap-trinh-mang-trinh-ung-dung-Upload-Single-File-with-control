@@ -1,3 +1,6 @@
+import json
+import os
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFrame, QCheckBox, QMessageBox, QStackedWidget,
@@ -11,14 +14,18 @@ from client.ui_client import ClientUI
 from admin.ui_admin import AdminUI
 
 
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+REMEMBER_LOGIN_FILE = os.path.join(BASE_DIR, "config", "remember_login.json")
+
+
 class LoginUI(QWidget):
-    def __init__(self):
+    def __init__(self, initial_role="user"):
         super().__init__()
         self.setWindowTitle("UPLOWER - Auth")
         self.resize(1100, 760)
         self.setMinimumSize(900, 760)
 
-        self.role = "user"
+        self.role = initial_role if initial_role in ("user", "admin") else "user"
         self.app_window = None
 
         self.setStyleSheet(f"""
@@ -37,7 +44,8 @@ class LoginUI(QWidget):
         self.stack.addWidget(self.register_page())
 
         root.addWidget(self.stack)
-        self.set_role("user")
+        self.set_role(self.role)
+        self.load_remembered_login(self.role)
 
     def input_style(self):
         return f"""
@@ -201,8 +209,8 @@ class LoginUI(QWidget):
         self.login_password.setStyleSheet(self.input_style())
 
         option_row = QHBoxLayout()
-        remember = QCheckBox("Ghi nhớ đăng nhập")
-        remember.setStyleSheet("font-weight:bold;")
+        self.remember_checkbox = QCheckBox("Ghi nhớ đăng nhập")
+        self.remember_checkbox.setStyleSheet("font-weight:bold;")
 
         forgot = QPushButton("Quên mật khẩu?")
         forgot.setStyleSheet(self.link_button_style())
@@ -210,7 +218,7 @@ class LoginUI(QWidget):
             lambda: QMessageBox.information(self, "UPLOWER", "Chức năng này sẽ bổ sung sau.")
         )
 
-        option_row.addWidget(remember)
+        option_row.addWidget(self.remember_checkbox)
         option_row.addStretch()
         option_row.addWidget(forgot)
 
@@ -325,6 +333,9 @@ class LoginUI(QWidget):
                 user_btn.setStyleSheet(self.role_button_style(role == "user"))
                 admin_btn.setStyleSheet(self.role_button_style(role == "admin"))
 
+        if hasattr(self, "login_email") and hasattr(self, "remember_checkbox"):
+            self.load_remembered_login(role)
+
     def show_register(self):
         self.set_role("user")
         self.stack.setCurrentIndex(1)
@@ -333,6 +344,75 @@ class LoginUI(QWidget):
     def show_login(self):
         self.stack.setCurrentIndex(0)
         self.setWindowTitle("UPLOWER - Login")
+
+    def read_remembered_logins(self):
+        try:
+            if not os.path.exists(REMEMBER_LOGIN_FILE):
+                return {"accounts": {}}
+
+            with open(REMEMBER_LOGIN_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if isinstance(data, dict) and "accounts" in data:
+                return data
+
+            if isinstance(data, dict) and data.get("remember"):
+                role = str(data.get("role", "user")).strip().lower()
+                if role in ("user", "admin"):
+                    return {
+                        "accounts": {
+                            role: {
+                                "remember": True,
+                                "email": str(data.get("email", "")).strip(),
+                            }
+                        }
+                    }
+        except Exception:
+            pass
+        return {"accounts": {}}
+
+    def load_remembered_login(self, role=None):
+        role = role if role in ("user", "admin") else self.role
+        self.login_email.clear()
+        self.login_password.clear()
+        self.remember_checkbox.setChecked(False)
+
+        try:
+            data = self.read_remembered_logins()
+            account = data.get("accounts", {}).get(role, {})
+
+            if not account.get("remember"):
+                return
+
+            email = str(account.get("email", "")).strip()
+
+            if email:
+                self.login_email.setText(email)
+            self.remember_checkbox.setChecked(True)
+        except Exception:
+            pass
+
+    def save_remembered_login(self, email):
+        os.makedirs(os.path.dirname(REMEMBER_LOGIN_FILE), exist_ok=True)
+        data = self.read_remembered_logins()
+        accounts = data.setdefault("accounts", {})
+
+        if not self.remember_checkbox.isChecked():
+            accounts.pop(self.role, None)
+            if accounts:
+                with open(REMEMBER_LOGIN_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+            elif os.path.exists(REMEMBER_LOGIN_FILE):
+                os.remove(REMEMBER_LOGIN_FILE)
+            return
+
+        accounts[self.role] = {
+            "remember": True,
+            "email": email,
+        }
+
+        with open(REMEMBER_LOGIN_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
 
     def open_app(self):
         email = self.login_email.text().strip()
@@ -347,6 +427,8 @@ class LoginUI(QWidget):
         except ValueError as e:
             QMessageBox.warning(self, "UPLOWER", str(e))
             return
+
+        self.save_remembered_login(email)
 
         if self.role == "admin":
             self.app_window = AdminUI(current_user=user)

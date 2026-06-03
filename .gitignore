@@ -2,5 +2,6 @@ __pycache__/
 *.pyc
 Uploads/
 Code/config/client_upload_history.json
+Code/config/remember_login.json
 Code/config/profile_data.json
 Code/Database/users.db
