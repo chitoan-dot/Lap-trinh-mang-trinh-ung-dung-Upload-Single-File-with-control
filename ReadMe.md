@@ -1,13 +1,13 @@
 # Upload Single File with Control
 
-## Cau truc nop bai
+## Cấu trúc nộp bài
 
-- `Code/`: Source code cua chuong trinh.
-- `DOCX/`: Bao cao Word (`.doc`, `.docx`).
-- `Extra/`: Minh chung, hinh anh, file test upload, tai lieu bo sung.
-- `PPTX/`: Slide thuyet trinh (`.ppt`, `.pptx`).
+- `Code/`: Mã nguồn của chương trình.
+- `DOCX/`: Báo cáo Word (`.doc`, `.docx`).
+- `Extra/`: Minh chứng, hình ảnh, file test upload, tài liệu bổ sung.
+- `PPTX/`: Slide thuyết trình (`.ppt`, `.pptx`).
 
-## Cach chay nhanh
+## Cách chạy nhanh
 
 Double-click:
 
@@ -15,16 +15,21 @@ Double-click:
 run_project.bat
 ```
 
-File nay se mo 2 cua so:
+File này sẽ mở 2 cửa sổ:
 
-- `Upload Server`: giao dien server PyQt.
-- `Upload Client`: giao dien user PyQt.
+- `Upload Server`: giao diện server PyQt.
+- `Upload Client`: giao diện user PyQt.
 
-Tren cua so Server bam `Bat dau`, sau do ben Client chon file va bam `Start`.
+Trên cửa sổ Server bấm `Bắt đầu`, sau đó bên Client chọn file và bấm `Start`.
 
-## Cach chay thu cong
+Lưu ý: cách này là chế độ chạy nhanh để kiểm thử và demo nhanh chức năng upload file.
+Script sẽ mở thẳng Server và Client để tiết kiệm thời gian, nên sẽ bỏ qua bước đăng nhập.
+Khi thuyết trình, có thể giải thích rằng terminal chỉ dùng để khởi động tiến trình,
+còn chương trình chính vẫn là các cửa sổ desktop app.
 
-Mo terminal tai thu muc project:
+## Cách chạy thủ công
+
+Mở terminal tại thư mục project:
 
 ```powershell
 pip install -r requirements.txt
@@ -32,45 +37,85 @@ cd Code
 python main.py server
 ```
 
-Mo terminal khac:
+Mở terminal khác:
 
 ```powershell
 cd Code
 python main.py client
 ```
 
-Cac che do khac:
+Các chế độ khác:
 
 ```powershell
 python main.py login
 python main.py admin
 ```
 
-`admin` mo Admin Panel cua frontend moi. Khi demo de tai upload, nen uu tien chay `server` va `client`.
+`admin` mở Admin Panel của frontend mới. Khi demo đề tài upload, nên ưu tiên chạy `server` và `client`.
 
-## Tai khoan demo
+## Cách demo đúng luồng desktop app
 
-- Admin mac dinh: `admin@uplower.local`
-- Mat khau admin: `admin123`
-- User moi co the tao tai man hinh `Dang ky`.
-- Khi dang nhap phai chon dung vai tro. Tai khoan user khong the dang nhap vao Admin Panel.
-- Admin Panel da doc du lieu that:
-  - `Dashboard`: tong user, file, dung luong, lich su upload gan day.
-  - `Users`: danh sach tai khoan tu SQLite.
-  - `Files`: quet file trong `Code/Uploads`.
-  - `Analytics`: thong ke theo trang thai upload va loai file.
-  - `Security`: thong tin auth, role control va lan dang nhap gan nhat.
-  - `Settings`: duong dan cau hinh/runtime dang dung.
+Nếu muốn demo đầy đủ hơn, đúng với yêu cầu có desktop app, đăng nhập và phân quyền,
+nên bắt đầu từ màn hình login:
 
-## Ghi chu demo
+```powershell
+cd Code
+python main.py login
+```
 
-- Khi demo cung mot may, Server de `0.0.0.0:8888`, Client gui toi `127.0.0.1:8888`.
-- Server xac minh SHA-256 sau khi nhan xong file.
-- Server co nut `Mo` de xem file da nhan.
-- Client giu style frontend moi, sidebar gom `Upload Files`, `My Uploads` va `Ho So`.
-- `My Uploads` doc lich su upload that tu `Code/config/client_upload_history.json`.
-- Mac dinh khi gui lai cung mot file, client chon `Bo qua neu file da co`: server chi xac minh checksum va tra ve `Skipped`, khong tao ban sao moi.
-- Neu muon gui lai that su, chon `Ghi de file cu` hoac `Doi ten tu dong` trong man hinh Upload Files.
-- Client co menu toc do demo, mac dinh `5 MB/s`; neu muon test Pause/Resume/Stop ro hon thi chon `2 MB/s`.
-- File test co the dat trong `Extra/test-files/`.
-- Thu muc `Code/Uploads/` la du lieu sinh ra khi chay server, khong can dua vao source code.
+Luồng demo gợi ý:
+
+1. Mở `python main.py login`.
+2. Đăng nhập admin bằng tài khoản mặc định.
+3. Giới thiệu Admin Panel: Dashboard, Users, Files, Analytics, Security, Settings.
+4. Mở cửa sổ Server và bấm `Bắt đầu` để server lắng nghe socket.
+   - Có thể mở bằng tab/chức năng Server trong Admin Panel nếu đang dùng.
+   - Hoặc mở riêng một tiến trình:
+
+```powershell
+cd Code
+python main.py server
+```
+
+5. Mở cửa sổ Client/User để gửi file:
+
+```powershell
+cd Code
+python main.py client
+```
+
+6. Trên Client chọn file, chọn chế độ xử lý file trùng, rồi bấm `Start`.
+7. Trong lúc upload có thể demo các nút `Pause`, `Resume`, `Stop`.
+8. Sau khi upload xong, quay lại Server để xem log, trạng thái xác minh SHA-256 và file đã nhận.
+9. Quay lại Admin Panel để xem danh sách file, thống kê và lịch sử upload.
+
+Giải thích khi demo: đây là mô hình client-server nên Server và Client nên chạy song song.
+Việc có 2 cửa sổ desktop là hợp lý vì Server là tiến trình lắng nghe/quản lý kết nối,
+còn Client là tiến trình người dùng gửi file. `run_project.bat` chỉ là cách mở nhanh 2 cửa sổ này.
+
+## Tài khoản demo
+
+- Admin mặc định: `admin@uplower.local`
+- Mật khẩu admin: `admin123`
+- User mới có thể tạo tại màn hình `Đăng ký`.
+- Khi đăng nhập phải chọn đúng vai trò. Tài khoản user không thể đăng nhập vào Admin Panel.
+- Admin Panel đã đọc dữ liệu thật:
+  - `Dashboard`: tổng user, file, dung lượng, lịch sử upload gần đây.
+  - `Users`: danh sách tài khoản từ SQLite.
+  - `Files`: quét file trong `Code/Uploads`.
+  - `Analytics`: thống kê theo trạng thái upload và loại file.
+  - `Security`: thông tin auth, role control và lần đăng nhập gần nhất.
+  - `Settings`: đường dẫn cấu hình/runtime đang dùng.
+
+## Ghi chú demo
+
+- Khi demo cùng một máy, Server để `0.0.0.0:8888`, Client gửi tới `127.0.0.1:8888`.
+- Server xác minh SHA-256 sau khi nhận xong file.
+- Server có nút `Mở` để xem file đã nhận.
+- Client giữ style frontend mới, sidebar gồm `Upload Files`, `My Uploads` và `Hồ Sơ`.
+- `My Uploads` đọc lịch sử upload thật từ `Code/config/client_upload_history.json`.
+- Mặc định khi gửi lại cùng một file, client chọn `Bỏ qua nếu file đã có`: server chỉ xác minh checksum và trả về `Skipped`, không tạo bản sao mới.
+- Nếu muốn gửi lại thật sự, chọn `Ghi đè file cũ` hoặc `Đổi tên tự động` trong màn hình Upload Files.
+- Client có menu tốc độ demo, mặc định `5 MB/s`; nếu muốn test Pause/Resume/Stop rõ hơn thì chọn `2 MB/s`.
+- File test có thể đặt trong `Extra/test-files/`.
+- Thư mục `Code/Uploads/` là dữ liệu sinh ra khi chạy server, không cần đưa vào source code.
