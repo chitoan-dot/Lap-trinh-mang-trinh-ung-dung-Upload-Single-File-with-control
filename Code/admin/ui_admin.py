@@ -10,14 +10,9 @@ from client.upload_history import load_upload_history
 from profile.profile_ui import ProfileUI
 from server.server_monitor_ui import ServerMonitorUI
 
-
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UPLOAD_DIR = os.path.join(BASE_DIR, "Uploads")
 PROFILE_FILE = os.path.join(BASE_DIR, "config", "profile_data.json")
-DEFAULT_ADMIN_NAME = "Admin"
-DEFAULT_ADMIN_EMAIL = "admin@uplower.local"
-FILES_PAGE_INDEX = 2
-
 
 class AdminUI(QWidget):
     def __init__(self, current_user=None):
@@ -63,19 +58,7 @@ class AdminUI(QWidget):
 
         self.profile_page = ProfileUI(role="admin", current_user=self.current_user)
         self.profile_page.profile_saved.connect(self.refresh_account_badge)
-        self.add_pages_to_stack()
-
-        root.addWidget(self.sidebar)
-        root.addWidget(self.stack)
-
-        self.set_active(self.btn_dashboard, 0)
-
-    def add_pages_to_stack(self):
-        for page in self.admin_pages():
-            self.stack.addWidget(page)
-
-    def admin_pages(self):
-        return [
+        pages = [
             self.dashboard(),
             self.users_page_ui(),
             self.files_page_ui(),
@@ -85,6 +68,14 @@ class AdminUI(QWidget):
             self.profile_page,
             self.settings_page_ui(),
         ]
+
+        for page in pages:
+            self.stack.addWidget(page)
+
+        root.addWidget(self.sidebar)
+        root.addWidget(self.stack)
+
+        self.set_active(self.btn_dashboard, 0)
 
     def create_sidebar(self):
         side = QFrame()
@@ -208,9 +199,9 @@ class AdminUI(QWidget):
 
         info = QVBoxLayout()
         info.setSpacing(2)
-        self.sidebar_name = QLabel(self.admin_display_name())
+        self.sidebar_name = QLabel(self.current_user.get("full_name") or "Admin")
         self.sidebar_name.setStyleSheet("font-size:15px; font-weight:900; color:white;")
-        self.sidebar_email = QLabel(self.admin_email())
+        self.sidebar_email = QLabel(self.current_user.get("email") or "admin@uplower.local")
         self.sidebar_email.setStyleSheet(f"font-size:12px; color:{TEXT2};")
         info.addWidget(self.sidebar_name)
         info.addWidget(self.sidebar_email)
@@ -219,16 +210,10 @@ class AdminUI(QWidget):
         layout.addLayout(info)
         return badge
 
-    def admin_display_name(self):
-        return self.current_user.get("full_name") or DEFAULT_ADMIN_NAME
-
-    def admin_email(self):
-        return self.current_user.get("email") or DEFAULT_ADMIN_EMAIL
-
     def refresh_account_badge(self):
         if hasattr(self, "profile_page"):
-            self.sidebar_name.setText(self.profile_page.profile.get("name", "") or self.admin_display_name())
-        self.sidebar_email.setText(self.admin_email())
+            self.sidebar_name.setText(self.profile_page.profile.get("name", "") or self.current_user.get("full_name") or "Admin")
+        self.sidebar_email.setText(self.current_user.get("email") or "admin@uplower.local")
         self.apply_sidebar_avatar(self.sidebar_avatar)
 
     def profile_key(self):
@@ -381,7 +366,7 @@ class AdminUI(QWidget):
         btn.setStyleSheet(self.nav_active_style())
         self.current_btn = btn
         self.stack.setCurrentIndex(index)
-        if index == FILES_PAGE_INDEX:
+        if index == 2:
             self.refresh_files_page()
         page = self.stack.currentWidget()
         if hasattr(page, "refresh_history"):
@@ -415,16 +400,13 @@ class AdminUI(QWidget):
     def upload_history(self):
         return load_upload_history()
 
-    def history_with_status(self, history, *statuses):
-        return [item for item in history if item.get("status") in statuses]
-
     def admin_summary(self):
         users = auth_manager.list_users()
         files = self.uploaded_files()
         history = self.upload_history()
-        verified = self.history_with_status(history, "Verified")
-        skipped = self.history_with_status(history, "Skipped")
-        failed = self.history_with_status(history, "Failed", "Stopped")
+        verified = [item for item in history if item.get("status") == "Verified"]
+        skipped = [item for item in history if item.get("status") == "Skipped"]
+        failed = [item for item in history if item.get("status") in ("Failed", "Stopped")]
         return {
             "users": users,
             "files": files,
@@ -449,13 +431,10 @@ class AdminUI(QWidget):
         for index in range(1, len(headers)):
             table.horizontalHeader().setSectionResizeMode(index, QHeaderView.ResizeToContents)
 
-        self.populate_table(table, rows)
-        return table
-
-    def populate_table(self, table, rows):
         for row_index, row_values in enumerate(rows):
             for col_index, value in enumerate(row_values):
                 table.setItem(row_index, col_index, QTableWidgetItem(str(value)))
+        return table
 
     def format_bytes(self, value):
         value = float(value or 0)
@@ -473,9 +452,6 @@ class AdminUI(QWidget):
 
     def display_account_status(self, status):
         return "Hoạt động" if status == "Active" else str(status or "--")
-
-    def upload_folder_ready(self):
-        return os.path.isdir(UPLOAD_DIR)
 
     def page_base(self):
         scroll = QScrollArea()
@@ -569,7 +545,7 @@ class AdminUI(QWidget):
 
         for name, value in [
             ("Database xác thực", 100 if users else 0),
-            ("Thư mục upload", 100 if self.upload_folder_ready() else 0),
+            ("Thư mục upload", 100 if os.path.isdir(UPLOAD_DIR) else 0),
             ("Dữ liệu lịch sử", 100 if history else 0),
             ("Phân quyền", 100),
         ]:
@@ -1002,7 +978,7 @@ class AdminUI(QWidget):
         rows = [
             ["Database", auth_manager.db_path],
             ["Thư mục upload", UPLOAD_DIR],
-            ["Email admin mặc định", DEFAULT_ADMIN_EMAIL],
+            ["Email admin mặc định", "admin@uplower.local"],
             ["Mật khẩu admin mặc định", "admin123"],
             ["Lịch sử client", "Code/config/client_upload_history.json"],
             ["Dữ liệu hồ sơ", "Code/config/profile_data.json"],
