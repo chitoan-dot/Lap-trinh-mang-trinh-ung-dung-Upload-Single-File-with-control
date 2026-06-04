@@ -13,13 +13,8 @@ from auth.auth_manager import auth_manager
 from client.ui_client import ClientUI
 from admin.ui_admin import AdminUI
 
-
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 REMEMBER_LOGIN_FILE = os.path.join(BASE_DIR, "config", "remember_login.json")
-VALID_ROLES = ("user", "admin")
-LOGIN_STACK_INDEX = 0
-REGISTER_STACK_INDEX = 1
-
 
 class LoginUI(QWidget):
     def __init__(self, initial_role="user"):
@@ -28,7 +23,7 @@ class LoginUI(QWidget):
         self.resize(1100, 760)
         self.setMinimumSize(900, 760)
 
-        self.role = self.normalize_role(initial_role)
+        self.role = initial_role if initial_role in ("user", "admin") else "user"
         self.app_window = None
 
         self.setStyleSheet(f"""
@@ -49,12 +44,6 @@ class LoginUI(QWidget):
         root.addWidget(self.stack)
         self.set_role(self.role)
         self.load_remembered_login(self.role)
-
-    def normalize_role(self, role):
-        return role if role in VALID_ROLES else "user"
-
-    def has_empty_fields(self, *values):
-        return any(value == "" for value in values)
 
     def input_style(self):
         return f"""
@@ -426,11 +415,11 @@ class LoginUI(QWidget):
 
     def show_register(self):
         self.set_role("user")
-        self.stack.setCurrentIndex(REGISTER_STACK_INDEX)
+        self.stack.setCurrentIndex(1)
         self.setWindowTitle("UPLOWER - Đăng ký")
 
     def show_login(self):
-        self.stack.setCurrentIndex(LOGIN_STACK_INDEX)
+        self.stack.setCurrentIndex(0)
         self.setWindowTitle("UPLOWER - Đăng nhập")
 
     def read_remembered_logins(self):
@@ -460,7 +449,7 @@ class LoginUI(QWidget):
         return {"accounts": {}}
 
     def load_remembered_login(self, role=None):
-        role = self.normalize_role(role) if role else self.role
+        role = role if role in ("user", "admin") else self.role
         self.login_email.clear()
         self.login_password.clear()
         self.remember_checkbox.setChecked(False)
@@ -502,16 +491,11 @@ class LoginUI(QWidget):
         with open(REMEMBER_LOGIN_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
-    def create_app_window(self, user):
-        if self.role == "admin":
-            return AdminUI(current_user=user)
-        return ClientUI(current_user=user)
-
     def open_app(self):
         email = self.login_email.text().strip()
         password = self.login_password.text().strip()
 
-        if self.has_empty_fields(email, password):
+        if email == "" or password == "":
             QMessageBox.warning(self, "UPLOWER", "Vui lòng nhập email và mật khẩu!")
             return
 
@@ -522,7 +506,12 @@ class LoginUI(QWidget):
             return
 
         self.save_remembered_login(email)
-        self.app_window = self.create_app_window(user)
+
+        if self.role == "admin":
+            self.app_window = AdminUI(current_user=user)
+        else:
+            self.app_window = ClientUI(current_user=user)
+
         self.app_window.show()
         self.close()
 
@@ -532,7 +521,7 @@ class LoginUI(QWidget):
         password = self.register_password.text().strip()
         confirm = self.confirm_password.text().strip()
 
-        if self.has_empty_fields(name, email, password, confirm):
+        if name == "" or email == "" or password == "" or confirm == "":
             QMessageBox.warning(self, "UPLOWER", "Vui lòng nhập đầy đủ thông tin!")
             return
 
