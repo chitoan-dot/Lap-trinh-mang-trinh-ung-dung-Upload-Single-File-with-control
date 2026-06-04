@@ -11,7 +11,8 @@ from PyQt5.QtWidgets import (
 from client.socket_client import SocketClient
 from client.upload_history import add_upload_record
 from client.upload_manager import UploadManager
-from common.constants import SERVER_ERROR_OFFSET
+from common.constants import DEFAULT_HOST, DEFAULT_PORT, SERVER_ERROR_OFFSET
+from common.utils import format_bytes as format_file_size
 from layout.theme import *
 from layout.style import *
 
@@ -29,6 +30,10 @@ DUPLICATE_POLICIES = {
     "Đổi tên tự động": "N",
     "Tiếp tục file đang dở": "R",
 }
+
+DEFAULT_SPEED_LABEL = "5 MB/s"
+DEFAULT_DUPLICATE_LABEL = next(iter(DUPLICATE_POLICIES))
+PROGRESS_UPDATE_INTERVAL = 0.25
 
 
 class DropArea(QFrame):
@@ -76,20 +81,22 @@ class UploadUI(QWidget):
         self.upload_state = "stopped"
         self.upload_thread = None
         self.socket_client = None
-        self.server_host = "127.0.0.1"
-        self.server_port = 8888
+        self.server_host = DEFAULT_HOST
+        self.server_port = DEFAULT_PORT
         self.last_upload_file_path = ""
         self.last_upload_file_size = 0
 
         self.setAcceptDrops(True)
         self.setStyleSheet(PAGE_STYLE)
         self.build_ui()
+        self.bind_signals()
+        self.check_server_connection_async()
 
+    def bind_signals(self):
         self.progress_signal.connect(self.on_progress)
         self.status_signal.connect(self.set_status)
         self.finished_signal.connect(self.on_finished)
         self.server_status_signal.connect(self.set_server_status)
-        self.check_server_connection_async()
 
     def build_ui(self):
         layout = QVBoxLayout(self)
@@ -120,17 +127,7 @@ class UploadUI(QWidget):
         upload_area = DropArea()
         upload_area.file_dropped.connect(self.set_selected_file)
         upload_area.setFixedHeight(460)
-        upload_area.setStyleSheet(f"""
-            QFrame {{
-                background:transparent;
-                border:2px dashed {BORDER};
-                border-radius:18px;
-            }}
-            QFrame:hover {{
-                background:#111827;
-                border:2px dashed {PRIMARY};
-            }}
-        """)
+        upload_area.setStyleSheet(self.upload_area_style())
 
         area = QVBoxLayout(upload_area)
         area.setContentsMargins(0, 0, 0, 0)
@@ -178,22 +175,7 @@ class UploadUI(QWidget):
         self.browse_btn = QPushButton("Chọn file")
         self.browse_btn.setFixedSize(220, 58)
         self.browse_btn.setCursor(Qt.PointingHandCursor)
-        self.browse_btn.setStyleSheet(f"""
-            QPushButton {{
-                background:{GRADIENT};
-                color:white;
-                border:none;
-                border-radius:14px;
-                font-size:18px;
-                font-weight:bold;
-            }}
-            QPushButton:hover {{
-                background:#ec4899;
-            }}
-            QPushButton:pressed {{
-                background:#c026d3;
-            }}
-        """)
+        self.browse_btn.setStyleSheet(self.browse_button_style())
         self.browse_btn.clicked.connect(self.pick_file)
 
         self.info_label = QLabel("File: Chưa chọn file  |  Dung lượng: 0 MB  |  Trạng thái: Sẵn sàng")
@@ -210,19 +192,7 @@ class UploadUI(QWidget):
         self.progress.setTextVisible(True)
         self.progress.setFixedWidth(500)
         self.progress.setFixedHeight(18)
-        self.progress.setStyleSheet(f"""
-            QProgressBar {{
-                background:#1e293b;
-                color:white;
-                border:none;
-                border-radius:8px;
-                text-align:center;
-            }}
-            QProgressBar::chunk {{
-                background:{PINK};
-                border-radius:8px;
-            }}
-        """)
+        self.progress.setStyleSheet(self.progress_style())
 
         controls = QHBoxLayout()
         controls.setAlignment(Qt.AlignCenter)
@@ -250,33 +220,11 @@ class UploadUI(QWidget):
         speed_label = QLabel("Tốc độ demo:")
         speed_label.setStyleSheet("color:#94a3b8; font-size:14px; border:none; background:transparent;")
 
-        self.speed_combo = QComboBox()
-        self.speed_combo.addItems(list(SPEED_LIMITS.keys()))
-        self.speed_combo.setCurrentText("5 MB/s")
-        self.speed_combo.setFixedSize(180, 36)
-        self.speed_combo.setStyleSheet(f"""
-            QComboBox {{
-                background:{CARD2};
-                color:{TEXT};
-                border:1px solid #334155;
-                border-radius:10px;
-                padding-left:10px;
-            }}
-            QComboBox:hover {{
-                border:1px solid {PRIMARY};
-                background:#171832;
-            }}
-            QComboBox::drop-down {{
-                border:none;
-                width:26px;
-            }}
-            QComboBox QAbstractItemView {{
-                background:{CARD2};
-                color:{TEXT};
-                selection-background-color:{PRIMARY};
-                border:1px solid {BORDER};
-            }}
-        """)
+        self.speed_combo = self.create_combo(
+            SPEED_LIMITS,
+            DEFAULT_SPEED_LABEL,
+            width=180,
+        )
 
         policy_label = QLabel("File trùng:")
         policy_label.setStyleSheet("color:#94a3b8; font-size:14px; border:none; background:transparent;")
@@ -316,6 +264,85 @@ class UploadUI(QWidget):
         layout.addWidget(upload_area)
         layout.addStretch()
         self.update_buttons()
+
+    def create_combo(self, options, default_text, width):
+        combo = QComboBox()
+        combo.addItems(list(options.keys()))
+        combo.setCurrentText(default_text)
+        combo.setFixedSize(width, 36)
+        combo.setStyleSheet(self.combo_style())
+        return combo
+
+    def combo_style(self):
+        return f"""
+            QComboBox {{
+                background:{CARD2};
+                color:{TEXT};
+                border:1px solid #334155;
+                border-radius:10px;
+                padding-left:10px;
+            }}
+            QComboBox:hover {{
+                border:1px solid {PRIMARY};
+                background:#171832;
+            }}
+            QComboBox::drop-down {{
+                border:none;
+                width:26px;
+            }}
+            QComboBox QAbstractItemView {{
+                background:{CARD2};
+                color:{TEXT};
+                selection-background-color:{PRIMARY};
+                border:1px solid {BORDER};
+            }}
+        """
+
+    def upload_area_style(self):
+        return f"""
+            QFrame {{
+                background:transparent;
+                border:2px dashed {BORDER};
+                border-radius:18px;
+            }}
+            QFrame:hover {{
+                background:#111827;
+                border:2px dashed {PRIMARY};
+            }}
+        """
+
+    def browse_button_style(self):
+        return f"""
+            QPushButton {{
+                background:{GRADIENT};
+                color:white;
+                border:none;
+                border-radius:14px;
+                font-size:18px;
+                font-weight:bold;
+            }}
+            QPushButton:hover {{
+                background:#ec4899;
+            }}
+            QPushButton:pressed {{
+                background:#c026d3;
+            }}
+        """
+
+    def progress_style(self):
+        return f"""
+            QProgressBar {{
+                background:#1e293b;
+                color:white;
+                border:none;
+                border-radius:8px;
+                text-align:center;
+            }}
+            QProgressBar::chunk {{
+                background:{PINK};
+                border-radius:8px;
+            }}
+        """
 
     def secondary_button_style(self):
         return f"""
@@ -406,8 +433,70 @@ class UploadUI(QWidget):
             return
         self.set_selected_file(file_path)
 
+    def server_address(self):
+        return f"{self.server_host}:{self.server_port}"
+
+    def make_info_text(self, file_name, file_size=None, status="Sáºµn sÃ ng", extra=""):
+        parts = [f"File: {file_name}"]
+        if file_size is not None:
+            parts.append(f"Dung lÆ°á»£ng: {self.format_bytes(file_size)}")
+        parts.append(f"Tráº¡ng thÃ¡i: {status}")
+        if extra:
+            parts.append(extra)
+        return "  |  ".join(parts)
+
+    def record_upload(self, file_path, file_size, status, speed="", message=""):
+        add_upload_record(
+            file_path,
+            file_size,
+            self.server_address(),
+            status,
+            speed=speed,
+            message=message,
+            user_email=self.user_email,
+            user_name=self.user_name,
+        )
+
+    def current_speed_limit(self):
+        return SPEED_LIMITS.get(self.speed_combo.currentText(), 0)
+
+    def current_duplicate_policy(self):
+        return DUPLICATE_POLICIES.get(self.policy_combo.currentText(), "S")
+
+    def should_update_progress(self, now, last_time, sent, file_size):
+        return now - last_time >= PROGRESS_UPDATE_INTERVAL or sent >= file_size
+
+    def calculate_percent(self, sent, file_size):
+        return int(sent * 100 / file_size) if file_size else 100
+
+    def calculate_speed(self, sent, last_sent, now, last_time):
+        return (sent - last_sent) / max(now - last_time, 0.001)
+
+    def emit_upload_progress(self, file_name, file_size, sent, speed):
+        percent = self.calculate_percent(sent, file_size)
+        text = (
+            f"File: {file_name}  |  Dung lÆ°á»£ng: {self.format_bytes(file_size)}  |  "
+            f"Tráº¡ng thÃ¡i: Äang upload {percent}%  |  Tá»‘c Ä‘á»™: {self.format_bytes(speed)}/s"
+        )
+        self.progress_signal.emit(percent, text)
+
+    def is_stopped(self):
+        return self.upload_state == "stopped"
+
+    def is_uploading(self):
+        return self.upload_state == "uploading"
+
+    def is_paused(self):
+        return self.upload_state == "paused"
+
+    def set_upload_state(self, state, status_text=""):
+        self.upload_state = state
+        if status_text:
+            self.set_status(status_text)
+        self.update_buttons()
+
     def set_selected_file(self, file_path):
-        if self.upload_state != "stopped":
+        if not self.is_stopped():
             QMessageBox.warning(self, "UPLOWER", "Không thể đổi file khi đang upload.")
             return
         if not file_path or not os.path.isfile(file_path):
@@ -423,7 +512,7 @@ class UploadUI(QWidget):
         self.update_buttons()
 
     def dragEnterEvent(self, event):
-        if self.upload_state != "stopped":
+        if not self.is_stopped():
             event.ignore()
             return
 
@@ -437,7 +526,7 @@ class UploadUI(QWidget):
         self.dragEnterEvent(event)
 
     def dropEvent(self, event):
-        if self.upload_state != "stopped":
+        if not self.is_stopped():
             event.ignore()
             return
 
@@ -469,21 +558,20 @@ class UploadUI(QWidget):
             QMessageBox.warning(self, "UPLOWER", "Server chưa sẵn sàng. Vui lòng bật Server bên Admin rồi thử lại.")
             return
         self.set_server_status(True, f"Server: Đã kết nối {self.server_host}:{self.server_port}")
-        if self.upload_state == "uploading":
+        if self.is_uploading():
             return
-        self.upload_state = "uploading"
-        self.update_buttons()
+        self.set_upload_state("uploading")
         self.upload_thread = threading.Thread(target=self.upload_worker, daemon=True)
         self.upload_thread.start()
 
     def pause_upload(self):
-        if self.upload_state == "uploading":
+        if self.is_uploading():
             self.upload_state = "paused"
             self.set_status("Đã tạm dừng")
             self.update_buttons()
 
     def resume_upload(self):
-        if self.upload_state == "paused":
+        if self.is_paused():
             self.upload_state = "uploading"
             self.set_status("Đang upload")
             self.update_buttons()
@@ -501,7 +589,6 @@ class UploadUI(QWidget):
         file_size = os.path.getsize(file_path)
         file_name = os.path.basename(file_path)
         start_time = time.time()
-        server_text = f"{self.server_host}:{self.server_port}"
         self.last_upload_file_path = file_path
         self.last_upload_file_size = file_size
 
@@ -509,7 +596,7 @@ class UploadUI(QWidget):
             self.socket_client = SocketClient(self.server_host, self.server_port)
             sock = self.socket_client.connect()
             manager = UploadManager(sock)
-            duplicate_policy = DUPLICATE_POLICIES.get(self.policy_combo.currentText(), "S")
+            duplicate_policy = self.current_duplicate_policy()
             offset = manager.prepare_upload(file_path, target_dir="", duplicate_policy=duplicate_policy)
 
             if offset == SERVER_ERROR_OFFSET:
@@ -517,14 +604,11 @@ class UploadUI(QWidget):
 
             if offset >= file_size:
                 manager.receive_verify_status()
-                add_upload_record(
+                self.record_upload(
                     file_path,
                     file_size,
-                    server_text,
                     "Skipped",
                     message="File already existed on server",
-                    user_email=self.user_email,
-                    user_name=self.user_name,
                 )
                 self.progress_signal.emit(100, f"File: {file_name}  |  Dung lượng: {self.format_bytes(file_size)}  |  Trạng thái: Skipped")
                 self.finished_signal.emit(True, "File đã có trên server và đã được xác minh.")
@@ -536,10 +620,9 @@ class UploadUI(QWidget):
             def on_chunk(sent, _chunk_size):
                 nonlocal last_time, last_sent
                 now = time.time()
-                if now - last_time >= 0.25 or sent >= file_size:
-                    percent = int(sent * 100 / file_size) if file_size else 100
-                    delta = sent - last_sent
-                    speed = delta / max(now - last_time, 0.001)
+                if self.should_update_progress(now, last_time, sent, file_size):
+                    percent = self.calculate_percent(sent, file_size)
+                    speed = self.calculate_speed(sent, last_sent, now, last_time)
                     text = (
                         f"File: {file_name}  |  Dung lượng: {self.format_bytes(file_size)}  |  "
                         f"Trạng thái: Đang upload {percent}%  |  Tốc độ: {self.format_bytes(speed)}/s"
@@ -552,20 +635,17 @@ class UploadUI(QWidget):
                 file_path,
                 offset=offset,
                 on_chunk=on_chunk,
-                should_stop=lambda: self.upload_state == "stopped",
-                should_pause=lambda: self.upload_state == "paused",
-                speed_limit=SPEED_LIMITS.get(self.speed_combo.currentText(), 0),
+                should_stop=self.is_stopped,
+                should_pause=self.is_paused,
+                speed_limit=self.current_speed_limit(),
             )
 
             if self.upload_state == "stopped":
-                add_upload_record(
+                self.record_upload(
                     file_path,
                     file_size,
-                    server_text,
                     "Stopped",
                     message="Upload stopped by user",
-                    user_email=self.user_email,
-                    user_name=self.user_name,
                 )
                 self.finished_signal.emit(False, "Đã dừng upload.")
             else:
@@ -573,14 +653,11 @@ class UploadUI(QWidget):
                 elapsed = max(time.time() - start_time, 1)
                 avg_speed = file_size / elapsed
                 speed_text = f"{self.format_bytes(avg_speed)}/s"
-                add_upload_record(
+                self.record_upload(
                     file_path,
                     file_size,
-                    server_text,
                     "Verified",
                     speed=speed_text,
-                    user_email=self.user_email,
-                    user_name=self.user_name,
                 )
                 self.progress_signal.emit(
                     100,
@@ -589,24 +666,18 @@ class UploadUI(QWidget):
                 self.finished_signal.emit(True, "Upload file thành công và checksum đã khớp.")
         except Exception as e:
             if self.upload_state == "stopped":
-                add_upload_record(
+                self.record_upload(
                     file_path,
                     file_size,
-                    server_text,
                     "Stopped",
                     message="Upload stopped by user",
-                    user_email=self.user_email,
-                    user_name=self.user_name,
                 )
             else:
-                add_upload_record(
+                self.record_upload(
                     file_path,
                     file_size,
-                    server_text,
                     "Failed",
                     message=str(e),
-                    user_email=self.user_email,
-                    user_name=self.user_name,
                 )
             self.finished_signal.emit(False, f"Upload thất bại: {e}")
         finally:
@@ -633,20 +704,24 @@ class UploadUI(QWidget):
             QMessageBox.warning(self, "UPLOWER", message)
 
     def update_buttons(self):
+        stopped = self.is_stopped()
+        uploading = self.is_uploading()
+        paused = self.is_paused()
         has_file = self.selected_file is not None
-        self.start_btn.setEnabled(has_file and self.upload_state == "stopped")
-        self.pause_btn.setEnabled(self.upload_state == "uploading")
-        self.resume_btn.setEnabled(self.upload_state == "paused")
-        self.stop_btn.setEnabled(self.upload_state in ("uploading", "paused"))
-        self.browse_btn.setEnabled(self.upload_state == "stopped")
-        self.speed_combo.setEnabled(self.upload_state == "stopped")
-        self.policy_combo.setEnabled(self.upload_state == "stopped")
+
+        button_states = {
+            self.start_btn: has_file and stopped,
+            self.pause_btn: uploading,
+            self.resume_btn: paused,
+            self.stop_btn: uploading or paused,
+            self.browse_btn: stopped,
+            self.speed_combo: stopped,
+            self.policy_combo: stopped,
+        }
+        for widget, enabled in button_states.items():
+            widget.setEnabled(enabled)
         if hasattr(self, "check_server_btn"):
-            self.check_server_btn.setEnabled(self.upload_state == "stopped")
+            self.check_server_btn.setEnabled(stopped)
 
     def format_bytes(self, value):
-        value = float(value)
-        for unit in ("B", "KB", "MB", "GB", "TB"):
-            if value < 1024 or unit == "TB":
-                return f"{value:.0f} {unit}" if unit == "B" else f"{value:.2f} {unit}"
-            value /= 1024
+        return format_file_size(value)

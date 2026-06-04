@@ -12,6 +12,17 @@ from layout.theme import *
 from layout.style import *
 
 
+USER_TABLE_HEADERS = ["User", "Email", "Role", "Status"]
+SAMPLE_USERS = [
+    ["User 1", "user1@gmail.com", "User", "Online"],
+    ["User 2", "user2@gmail.com", "User", "Offline"],
+    ["User 3", "user3@gmail.com", "User", "Online"],
+    ["User 4", "user4@gmail.com", "User", "Offline"],
+    ["User 5", "user5@gmail.com", "User", "Online"],
+    ["Admin", "admin@gmail.com", "Admin", "Online"],
+]
+
+
 class AdminUsersUI(QWidget):
 
     def __init__(self):
@@ -24,11 +35,7 @@ class AdminUsersUI(QWidget):
         layout.setSpacing(18)
 
         title = QLabel("User Management")
-        title.setStyleSheet(f"""
-            font-size:28px;
-            font-weight:bold;
-            color:{TEXT};
-        """)
+        title.setStyleSheet(self.title_style())
 
         layout.addWidget(title)
 
@@ -37,8 +44,7 @@ class AdminUsersUI(QWidget):
         add_btn = QPushButton("Thêm User")
         lock_btn = QPushButton("Khóa tài khoản")
 
-        add_btn.setStyleSheet(BUTTON_STYLE)
-        lock_btn.setStyleSheet(BUTTON_STYLE)
+        self.apply_button_style(add_btn, lock_btn)
 
         top.addWidget(add_btn)
         top.addWidget(lock_btn)
@@ -46,14 +52,9 @@ class AdminUsersUI(QWidget):
 
         layout.addLayout(top)
 
-        table = QTableWidget(6, 4)
+        table = QTableWidget(len(SAMPLE_USERS), len(USER_TABLE_HEADERS))
 
-        table.setHorizontalHeaderLabels([
-            "User",
-            "Email",
-            "Role",
-            "Status"
-        ])
+        table.setHorizontalHeaderLabels(USER_TABLE_HEADERS)
 
         table.horizontalHeader().setStretchLastSection(True)
 
@@ -75,18 +76,23 @@ class AdminUsersUI(QWidget):
         }}
         """)
 
-        data = [
-            ["User 1", "user1@gmail.com", "User", "Online"],
-            ["User 2", "user2@gmail.com", "User", "Offline"],
-            ["User 3", "user3@gmail.com", "User", "Online"],
-            ["User 4", "user4@gmail.com", "User", "Offline"],
-            ["User 5", "user5@gmail.com", "User", "Online"],
-            ["Admin", "admin@gmail.com", "Admin", "Online"],
-        ]
-
-        for r, row in enumerate(data):
-            for c, value in enumerate(row):
-                table.setItem(r, c, QTableWidgetItem(value))
+        self.fill_table(table, SAMPLE_USERS)
 
         layout.addWidget(table)
         layout.addStretch()
+
+    def title_style(self):
+        return f"""
+            font-size:28px;
+            font-weight:bold;
+            color:{TEXT};
+        """
+
+    def fill_table(self, table, rows):
+        for row_index, row in enumerate(rows):
+            for col_index, value in enumerate(row):
+                table.setItem(row_index, col_index, QTableWidgetItem(value))
+
+    def apply_button_style(self, *buttons):
+        for button in buttons:
+            button.setStyleSheet(BUTTON_STYLE)

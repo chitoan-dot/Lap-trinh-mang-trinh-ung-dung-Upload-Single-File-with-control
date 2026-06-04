@@ -9,8 +9,20 @@ from datetime import datetime
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import *
 
-from common.constants import SERVER_VERIFY_FAILED, SERVER_VERIFY_OK, SERVER_VERIFY_SKIPPED
+from common.constants import (
+    CHUNK_SIZE,
+    DEFAULT_BIND_HOST,
+    DEFAULT_PORT,
+    SERVER_VERIFY_FAILED,
+    SERVER_VERIFY_OK,
+    SERVER_VERIFY_SKIPPED,
+)
 from layout.theme import *
+
+
+HASH_CHUNK_SIZE = 1024 * 1024
+TRANSFER_UPDATE_INTERVAL = 0.25
+SOCKET_BACKLOG = 10
 
 
 class ServerMonitorUI(QWidget):
@@ -24,8 +36,8 @@ class ServerMonitorUI(QWidget):
         self.resize(1450, 840)
         self.setMinimumSize(1100, 720)
 
-        self.host = "0.0.0.0"
-        self.port = 8888
+        self.host = DEFAULT_BIND_HOST
+        self.port = DEFAULT_PORT
         self.upload_dir = os.path.abspath("Uploads")
 
         self.server_socket = None
@@ -430,20 +442,27 @@ class ServerMonitorUI(QWidget):
             self.folder_input.setText(folder)
             self.log_signal.emit(f"Đã chọn thư mục lưu: {folder}")
 
+    def server_address(self):
+        return f"{self.host}:{self.port}"
+
+    def create_server_socket(self):
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind((self.host, self.port))
+        server_socket.listen(SOCKET_BACKLOG)
+        return server_socket
+
     def start_server(self):
         if self.running:
             return
 
         try:
-            self.host = self.host_input.text().strip() or "0.0.0.0"
-            self.port = int(self.port_input.text().strip() or "8888")
+            self.host = self.host_input.text().strip() or DEFAULT_BIND_HOST
+            self.port = int(self.port_input.text().strip() or str(DEFAULT_PORT))
             self.upload_dir = self.folder_input.text().strip() or os.path.abspath("Uploads")
             os.makedirs(self.upload_dir, exist_ok=True)
 
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.bind((self.host, self.port))
-            self.server_socket.listen(10)
+            self.server_socket = self.create_server_socket()
 
             self.running = True
             self.started_at = time.time()
@@ -463,7 +482,7 @@ class ServerMonitorUI(QWidget):
             """)
 
             self.lan_label.setText(f"Địa chỉ LAN: {self.get_lan_ip()}:{self.port}")
-            self.log_signal.emit(f"Server đang chạy tại {self.host}:{self.port}")
+            self.log_signal.emit(f"Server đang chạy tại {self.server_address()}")
 
         except Exception as e:
             self.running = False
@@ -475,11 +494,7 @@ class ServerMonitorUI(QWidget):
     def stop_server(self):
         self.running = False
 
-        try:
-            if self.server_socket:
-                self.server_socket.close()
-        except Exception:
-            pass
+        self.close_server_socket()
 
         self.server_socket = None
 
@@ -498,6 +513,14 @@ class ServerMonitorUI(QWidget):
         self.update_buttons()
         self.stat_signal.emit()
 
+    def close_server_socket(self):
+        if not self.server_socket:
+            return
+        try:
+            self.server_socket.close()
+        except Exception:
+            pass
+
     def listen_loop(self):
         while self.running:
             try:
@@ -512,8 +535,11 @@ class ServerMonitorUI(QWidget):
             except Exception:
                 break
 
+    def format_addr(self, addr):
+        return f"{addr[0]}:{addr[1]}"
+
     def handle_client(self, client_socket, addr):
-        addr_text = f"{addr[0]}:{addr[1]}"
+        addr_text = self.format_addr(addr)
 
         try:
             command = self.recv_exact(client_socket, 1).decode(errors="replace")
@@ -581,7 +607,7 @@ class ServerMonitorUI(QWidget):
 
             with open(save_path, mode) as f:
                 while received < file_size:
-                    data = client_socket.recv(65536)
+                    data = client_socket.recv(CHUNK_SIZE)
                     if not data:
                         break
 
@@ -590,7 +616,7 @@ class ServerMonitorUI(QWidget):
                     self.total_bytes += len(data)
 
                     now = time.time()
-                    if now - last_time >= 0.25 or received >= file_size:
+                    if now - last_time >= TRANSFER_UPDATE_INTERVAL or received >= file_size:
                         percent = int(received * 100 / file_size) if file_size else 100
                         speed = (received - last_received) / max(now - last_time, 0.001)
 
@@ -741,7 +767,7 @@ class ServerMonitorUI(QWidget):
         digest = hashlib.sha256()
         with open(file_path, "rb") as f:
             while True:
-                chunk = f.read(1024 * 1024)
+                chunk = f.read(HASH_CHUNK_SIZE)
                 if not chunk:
                     break
                 digest.update(chunk)
