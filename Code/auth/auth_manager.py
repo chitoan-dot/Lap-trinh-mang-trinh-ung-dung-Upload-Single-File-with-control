@@ -5,6 +5,15 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 
+try:
+    from Database.sql_server_sync import (
+        sync_user_to_sql_server,
+        sync_login_to_sql_server
+    )
+except Exception:
+    sync_user_to_sql_server = None
+    sync_login_to_sql_server = None
+
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DB_PATH = os.path.join(BASE_DIR, "Database", "users.db")
@@ -51,6 +60,7 @@ class AuthManager:
     def ensure_default_admin(self):
         if self.get_user_by_email(DEFAULT_ADMIN_EMAIL):
             return
+
         self.create_user(
             full_name="Administrator",
             email=DEFAULT_ADMIN_EMAIL,
@@ -90,6 +100,7 @@ class AuthManager:
 
         password_hash, salt = self.hash_password(password)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         with self.connect() as conn:
             conn.execute(
                 """
@@ -99,10 +110,25 @@ class AuthManager:
                 (full_name, email, role, password_hash, salt, now),
             )
             conn.commit()
+
+        if sync_user_to_sql_server:
+            try:
+                sync_user_to_sql_server(
+                    full_name=full_name,
+                    email=email,
+                    password_hash=password_hash,
+                    salt=salt,
+                    role=role,
+                    status="Active"
+                )
+            except Exception as e:
+                print("Không thể đồng bộ user sang SQL Server:", e)
+
         return self.get_user_by_email(email)
 
     def authenticate(self, email, password, expected_role=None):
         user = self.get_user_by_email(email)
+
         if not user:
             raise ValueError("Tài khoản không tồn tại.")
         if expected_role and user["role"] != expected_role:
@@ -113,17 +139,34 @@ class AuthManager:
             raise ValueError("Mật khẩu không đúng.")
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         with self.connect() as conn:
-            conn.execute("UPDATE users SET last_login = ? WHERE id = ?", (now, user["id"]))
+            conn.execute(
+                "UPDATE users SET last_login = ? WHERE id = ?",
+                (now, user["id"])
+            )
             conn.commit()
+
+        if sync_login_to_sql_server:
+            try:
+                sync_login_to_sql_server(email)
+            except Exception as e:
+                print("Không thể đồng bộ login sang SQL Server:", e)
+
         return self.public_user(self.get_user_by_email(user["email"]))
 
     def get_user_by_email(self, email):
         email = (email or "").strip().lower()
+
         if not email:
             return None
+
         with self.connect() as conn:
-            row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM users WHERE email = ?",
+                (email,)
+            ).fetchone()
+
             return dict(row) if row else None
 
     def list_users(self):
@@ -135,11 +178,13 @@ class AuthManager:
                 ORDER BY role = 'admin' DESC, created_at ASC
                 """
             ).fetchall()
+
             return [dict(row) for row in rows]
 
     def public_user(self, user):
         if not user:
             return None
+
         return {
             "id": user["id"],
             "full_name": user["full_name"],

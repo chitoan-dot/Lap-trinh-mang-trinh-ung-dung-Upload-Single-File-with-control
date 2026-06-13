@@ -15,6 +15,14 @@ from common.constants import SERVER_ERROR_OFFSET
 from layout.theme import *
 from layout.style import *
 
+# THÊM: lưu dữ liệu upload sang SQL Server
+try:
+    from Database.db_manager import save_uploaded_file, save_upload_log
+except Exception:
+    save_uploaded_file = None
+    save_upload_log = None
+
+
 SPEED_LIMITS = {
     "Không giới hạn": 0,
     "2 MB/s": 2 * 1024 * 1024,
@@ -28,6 +36,7 @@ DUPLICATE_POLICIES = {
     "Đổi tên tự động": "N",
     "Tiếp tục file đang dở": "R",
 }
+
 
 class DropArea(QFrame):
     file_dropped = pyqtSignal(str)
@@ -57,6 +66,7 @@ class DropArea(QFrame):
             event.acceptProposedAction()
         else:
             event.ignore()
+
 
 class UploadUI(QWidget):
     progress_signal = pyqtSignal(int, str)
@@ -476,17 +486,53 @@ class UploadUI(QWidget):
     def pause_upload(self):
         if self.upload_state == "uploading":
             self.upload_state = "paused"
+
+            # THÊM: lưu log pause vào SQL Server
+            if save_upload_log:
+                try:
+                    save_upload_log(
+                        user_email=self.user_email,
+                        action="pause_upload",
+                        description=f"Tạm dừng upload {os.path.basename(self.selected_file)}"
+                    )
+                except Exception as e:
+                    print("SQL Server log pause error:", e)
+
             self.set_status("Đã tạm dừng")
             self.update_buttons()
 
     def resume_upload(self):
         if self.upload_state == "paused":
             self.upload_state = "uploading"
+
+            # THÊM: lưu log resume vào SQL Server
+            if save_upload_log:
+                try:
+                    save_upload_log(
+                        user_email=self.user_email,
+                        action="resume_upload",
+                        description=f"Tiếp tục upload {os.path.basename(self.selected_file)}"
+                    )
+                except Exception as e:
+                    print("SQL Server log resume error:", e)
+
             self.set_status("Đang upload")
             self.update_buttons()
 
     def stop_upload(self):
         if self.upload_state in ("uploading", "paused"):
+
+            # THÊM: lưu log stop vào SQL Server
+            if save_upload_log:
+                try:
+                    save_upload_log(
+                        user_email=self.user_email,
+                        action="stop_upload",
+                        description=f"Dừng upload {os.path.basename(self.selected_file)}"
+                    )
+                except Exception as e:
+                    print("SQL Server log stop error:", e)
+
             self.upload_state = "stopped"
             if self.socket_client:
                 self.socket_client.close()
@@ -523,6 +569,18 @@ class UploadUI(QWidget):
                     user_email=self.user_email,
                     user_name=self.user_name,
                 )
+
+                # THÊM: lưu log skipped vào SQL Server
+                if save_upload_log:
+                    try:
+                        save_upload_log(
+                            user_email=self.user_email,
+                            action="upload_skipped",
+                            description=f"File đã tồn tại trên server: {file_name}"
+                        )
+                    except Exception as e:
+                        print("SQL Server log skipped error:", e)
+
                 self.progress_signal.emit(100, f"File: {file_name}  |  Dung lượng: {self.format_bytes(file_size)}  |  Trạng thái: Skipped")
                 self.finished_signal.emit(True, "File đã có trên server và đã được xác minh.")
                 return
@@ -579,6 +637,36 @@ class UploadUI(QWidget):
                     user_email=self.user_email,
                     user_name=self.user_name,
                 )
+
+                # THÊM: upload thành công thì lưu file + log vào SQL Server
+                if save_uploaded_file or save_upload_log:
+                    try:
+                        file_hash = ""
+                        try:
+                            file_hash = manager.calculate_file_hash(file_path)
+                        except Exception:
+                            file_hash = ""
+
+                        if save_uploaded_file:
+                            save_uploaded_file(
+                                user_email=self.user_email,
+                                file_name=file_name,
+                                file_size=file_size,
+                                file_hash=file_hash,
+                                file_path=file_path,
+                                status="uploaded"
+                            )
+
+                        if save_upload_log:
+                            save_upload_log(
+                                user_email=self.user_email,
+                                action="upload_completed",
+                                description=f"Upload thành công {file_name}"
+                            )
+
+                    except Exception as e:
+                        print("SQL Server save upload error:", e)
+
                 self.progress_signal.emit(
                     100,
                     f"File: {file_name}  |  Dung lượng: {self.format_bytes(file_size)}  |  Trạng thái: Verified  |  Trung bình: {speed_text}"
@@ -605,6 +693,18 @@ class UploadUI(QWidget):
                     user_email=self.user_email,
                     user_name=self.user_name,
                 )
+
+                # THÊM: upload lỗi thì lưu log vào SQL Server
+                if save_upload_log:
+                    try:
+                        save_upload_log(
+                            user_email=self.user_email,
+                            action="upload_failed",
+                            description=f"Upload thất bại {file_name}: {e}"
+                        )
+                    except Exception as log_error:
+                        print("SQL Server log failed error:", log_error)
+
             self.finished_signal.emit(False, f"Upload thất bại: {e}")
         finally:
             if self.socket_client:
@@ -647,6 +747,3 @@ class UploadUI(QWidget):
             if value < 1024 or unit == "TB":
                 return f"{value:.0f} {unit}" if unit == "B" else f"{value:.2f} {unit}"
             value /= 1024
-
-
-
