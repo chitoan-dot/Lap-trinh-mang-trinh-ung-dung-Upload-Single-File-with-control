@@ -63,7 +63,6 @@ class AdminUI(QWidget):
             self.users_page_ui(),
             self.files_page_ui(),
             self.analytics_page_ui(),
-            self.security_page_ui(),
             ServerMonitorUI(),
             self.profile_page,
             self.settings_page_ui(),
@@ -132,7 +131,6 @@ class AdminUI(QWidget):
         self.btn_users = self.nav_button("♧", "Tài khoản")
         self.btn_files = self.nav_button("▤", "File")
         self.btn_analytics = self.nav_button("▥", "Phân tích")
-        self.btn_security = self.nav_button("♢", "Bảo mật")
         self.btn_server = self.nav_button("▣", "Server")
         self.btn_profile = self.nav_button("♡", "Hồ sơ")
         self.btn_settings = self.nav_button("⚙", "Cài đặt")
@@ -142,10 +140,9 @@ class AdminUI(QWidget):
             (self.btn_users, 1),
             (self.btn_files, 2),
             (self.btn_analytics, 3),
-            (self.btn_security, 4),
-            (self.btn_server, 5),
-            (self.btn_profile, 6),
-            (self.btn_settings, 7),
+            (self.btn_server, 4),
+            (self.btn_profile, 5),
+            (self.btn_settings, 6),
         ]
 
         for btn, index in buttons:
@@ -922,44 +919,6 @@ class AdminUI(QWidget):
             for item in history[:10]
         ]
         layout.addWidget(self.data_table(["Thời gian", "File", "Dung lượng", "Tốc độ", "Trạng thái"], recent_rows, 400))
-        return page
-
-    def security_page_ui(self):
-        page, layout = self.page_base()
-        layout.addLayout(self.topbar("Bảo mật", "Kiểm tra xác thực, phân quyền và hoạt động tài khoản"))
-        users = auth_manager.list_users()
-        admins = [user for user in users if user.get("role") == "admin"]
-        active = [user for user in users if user.get("status") == "Active"]
-        logged_in = [user for user in users if user.get("last_login")]
-
-        stats = QHBoxLayout()
-        stats.setSpacing(30)
-        stats.addWidget(self.stat_card("✓", str(len(active)), "Tài khoản hoạt động"))
-        stats.addWidget(self.stat_card("♙", str(len(admins)), "Tài khoản admin"))
-        stats.addWidget(self.stat_card("◆", "Bật", "Hash mật khẩu"))
-        stats.addWidget(self.stat_card("◇", "Bật", "Kiểm tra vai trò"))
-        layout.addLayout(stats)
-
-        policy_rows = [
-            ["Lưu mật khẩu", "PBKDF2 SHA-256 với salt ngẫu nhiên", "Đã bật"],
-            ["Admin mặc định", "admin@uplower.local", "Đã tạo"],
-            ["Bảo vệ vai trò", "User không thể mở Admin Panel", "Đã bật"],
-            ["Đăng ký", "Chỉ tạo tài khoản User", "Đã bật"],
-            ["Database", auth_manager.db_path, "Sẵn sàng"],
-        ]
-        layout.addWidget(self.data_table(["Kiểm soát", "Chi tiết", "Trạng thái"], policy_rows, 300))
-
-        activity_rows = [
-            [
-                user.get("full_name", ""),
-                user.get("email", ""),
-                user.get("role", ""),
-                user.get("last_login") or "--",
-                self.display_account_status(user.get("status")),
-            ]
-            for user in users
-        ]
-        layout.addWidget(self.data_table(["User", "Email", "Vai trò", "Đăng nhập gần nhất", "Trạng thái"], activity_rows, 360))
         return page
 
     def settings_page_ui(self):

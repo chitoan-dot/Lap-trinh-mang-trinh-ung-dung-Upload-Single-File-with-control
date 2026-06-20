@@ -4,12 +4,24 @@ import threading
 import struct
 import time
 import hashlib
+import uuid
 from datetime import datetime
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import *
 
-from common.constants import SERVER_VERIFY_FAILED, SERVER_VERIFY_OK, SERVER_VERIFY_SKIPPED
+from common.constants import (
+    MULTIPART_COMMAND,
+    MULTIPART_ABORT,
+    MULTIPART_ERROR,
+    MULTIPART_FINALIZE,
+    MULTIPART_INIT,
+    MULTIPART_PART,
+    MULTIPART_READY,
+    SERVER_VERIFY_FAILED,
+    SERVER_VERIFY_OK,
+    SERVER_VERIFY_SKIPPED,
+)
 from layout.theme import *
 
 class ServerMonitorUI(QWidget):
@@ -34,6 +46,8 @@ class ServerMonitorUI(QWidget):
         self.clients = {}
         self.transfer_rows = {}
         self.transfer_paths = {}
+        self.multipart_sessions = {}
+        self.multipart_lock = threading.Lock()
 
         self.total_files = 0
         self.total_bytes = 0
@@ -519,6 +533,9 @@ class ServerMonitorUI(QWidget):
             if command == "P":
                 client_socket.sendall(b"OK")
                 return
+            if command == MULTIPART_COMMAND.decode():
+                self.handle_multipart_client(client_socket, addr)
+                return
             if command != "U":
                 raise RuntimeError("Lệnh gửi không hợp lệ")
 
@@ -612,6 +629,7 @@ class ServerMonitorUI(QWidget):
                 self.failed_count += 1
                 self.transfer_signal.emit(row_key, safe_name, addr_text, "100%", "Sai checksum", save_path)
                 self.log_signal.emit(f"Checksum không khớp: {safe_name}")
+                self.remove_incomplete_file(save_path)
                 return
 
             client_socket.sendall(SERVER_VERIFY_OK)
@@ -634,6 +652,200 @@ class ServerMonitorUI(QWidget):
 
             self.active_transfers = max(0, self.active_transfers - 1)
             self.stat_signal.emit()
+
+    def handle_multipart_client(self, client_socket, addr):
+        mode = self.recv_exact(client_socket, 1)
+        if mode == MULTIPART_INIT:
+            self.handle_multipart_init(client_socket, addr)
+        elif mode == MULTIPART_PART:
+            self.handle_multipart_part(client_socket, addr)
+        elif mode == MULTIPART_FINALIZE:
+            self.handle_multipart_finalize(client_socket, addr)
+        elif mode == MULTIPART_ABORT:
+            self.handle_multipart_abort(client_socket, addr)
+        else:
+            raise RuntimeError("Lệnh multi-part không hợp lệ")
+
+    def handle_multipart_init(self, client_socket, addr):
+        try:
+            dir_len = struct.unpack("!I", self.recv_exact(client_socket, 4))[0]
+            target_dir = self.recv_exact(client_socket, dir_len).decode(errors="replace") if dir_len > 0 else ""
+
+            name_len = struct.unpack("!I", self.recv_exact(client_socket, 4))[0]
+            file_name = self.recv_exact(client_socket, name_len).decode(errors="replace")
+
+            file_size = struct.unpack("!Q", self.recv_exact(client_socket, 8))[0]
+            duplicate_policy = self.recv_exact(client_socket, 1).decode(errors="replace") or "N"
+            expected_hash = self.recv_exact(client_socket, 32)
+            part_count = struct.unpack("!H", self.recv_exact(client_socket, 2))[0]
+            part_count = max(1, min(part_count, 65535))
+
+            safe_name = os.path.basename(file_name)
+            safe_dir = self.sanitize_subfolder(target_dir)
+            save_dir = os.path.join(self.upload_dir, safe_dir) if safe_dir else self.upload_dir
+            os.makedirs(save_dir, exist_ok=True)
+
+            save_path = os.path.join(save_dir, safe_name)
+            if duplicate_policy == "O":
+                pass
+            elif os.path.exists(save_path) and duplicate_policy == "S":
+                if self.calculate_file_hash(save_path) == expected_hash:
+                    client_socket.sendall(SERVER_VERIFY_SKIPPED)
+                    return
+                save_path = self.unique_file_path(save_dir, safe_name)
+            elif os.path.exists(save_path):
+                save_path = self.unique_file_path(save_dir, safe_name)
+
+            safe_name = os.path.basename(save_path)
+            with open(save_path, "wb") as f:
+                f.truncate(file_size)
+
+            session_id = uuid.uuid4().hex
+            row_key = f"multi-{session_id}"
+            session = {
+                "id": session_id,
+                "path": save_path,
+                "name": safe_name,
+                "size": file_size,
+                "hash": expected_hash,
+                "part_count": part_count,
+                "done_parts": set(),
+                "received_by_part": {},
+                "file_lock": threading.Lock(),
+                "last_emit": time.time(),
+                "last_total": 0,
+                "row_key": row_key,
+            }
+            with self.multipart_lock:
+                self.multipart_sessions[session_id] = session
+
+            session_bytes = session_id.encode("utf-8")
+            client_socket.sendall(MULTIPART_READY)
+            client_socket.sendall(struct.pack("!I", len(session_bytes)))
+            client_socket.sendall(session_bytes)
+
+            self.transfer_signal.emit(row_key, safe_name, "multi-chunk", "0%", f"Chờ {part_count} chunks", save_path)
+            self.log_signal.emit(f"Khởi tạo multi-chunk upload {safe_name} với {part_count} chunks.")
+
+        except Exception as e:
+            self.send_multipart_error(client_socket, str(e))
+            raise
+
+    def handle_multipart_part(self, client_socket, addr):
+        session_len = struct.unpack("!I", self.recv_exact(client_socket, 4))[0]
+        session_id = self.recv_exact(client_socket, session_len).decode("utf-8", errors="replace")
+        part_index, offset, part_size = struct.unpack("!HQQ", self.recv_exact(client_socket, 18))
+
+        with self.multipart_lock:
+            session = self.multipart_sessions.get(session_id)
+        if not session:
+            raise RuntimeError("Không tìm thấy phiên multi-part upload.")
+        if offset + part_size > session["size"]:
+            raise RuntimeError("Part vượt quá dung lượng file.")
+
+        received = 0
+        with open(session["path"], "r+b") as f:
+            while received < part_size:
+                data = client_socket.recv(min(65536, part_size - received))
+                if not data:
+                    self.transfer_signal.emit(session["row_key"], session["name"], "multi-chunk", "0%", "Đã dừng", session["path"])
+                    self.log_signal.emit(f"Chunk {part_index + 1} của {session['name']} đã dừng trước khi hoàn tất.")
+                    return
+                with session["file_lock"]:
+                    f.seek(offset + received)
+                    f.write(data)
+                received += len(data)
+                self.total_bytes += len(data)
+                self.update_multipart_progress(session, part_index, received)
+
+        with session["file_lock"]:
+            session["received_by_part"][part_index] = part_size
+            session["done_parts"].add(part_index)
+        client_socket.sendall(SERVER_VERIFY_OK)
+
+    def handle_multipart_finalize(self, client_socket, addr):
+        session_len = struct.unpack("!I", self.recv_exact(client_socket, 4))[0]
+        session_id = self.recv_exact(client_socket, session_len).decode("utf-8", errors="replace")
+
+        with self.multipart_lock:
+            session = self.multipart_sessions.get(session_id)
+        if not session:
+            client_socket.sendall(SERVER_VERIFY_FAILED)
+            return
+
+        if len(session["done_parts"]) != session["part_count"]:
+            client_socket.sendall(SERVER_VERIFY_FAILED)
+            self.failed_count += 1
+            self.transfer_signal.emit(session["row_key"], session["name"], "multi-chunk", "100%", "Thiếu chunk", session["path"])
+            return
+
+        actual_hash = self.calculate_file_hash(session["path"])
+        if actual_hash != session["hash"]:
+            client_socket.sendall(SERVER_VERIFY_FAILED)
+            self.failed_count += 1
+            self.transfer_signal.emit(session["row_key"], session["name"], "multi-chunk", "100%", "Sai checksum", session["path"])
+            self.log_signal.emit(f"Checksum multi-chunk không khớp: {session['name']}")
+            self.remove_incomplete_file(session["path"])
+            with self.multipart_lock:
+                self.multipart_sessions.pop(session_id, None)
+            return
+
+        client_socket.sendall(SERVER_VERIFY_OK)
+        self.total_files += 1
+        self.transfer_signal.emit(session["row_key"], session["name"], "multi-chunk", "100%", "Đã xác minh", session["path"])
+        self.log_signal.emit(f"Nhận xong multi-chunk và xác minh file: {session['name']}")
+        with self.multipart_lock:
+            self.multipart_sessions.pop(session_id, None)
+        self.stat_signal.emit()
+
+    def handle_multipart_abort(self, client_socket, addr):
+        session_len = struct.unpack("!I", self.recv_exact(client_socket, 4))[0]
+        session_id = self.recv_exact(client_socket, session_len).decode("utf-8", errors="replace")
+
+        with self.multipart_lock:
+            session = self.multipart_sessions.pop(session_id, None)
+        if session:
+            try:
+                if os.path.exists(session["path"]):
+                    os.remove(session["path"])
+            except Exception as e:
+                self.log_signal.emit(f"Không thể xóa file multi-chunk dở dang: {e}")
+            self.transfer_signal.emit(session["row_key"], session["name"], "multi-chunk", "0%", "Đã dừng", session["path"])
+            self.log_signal.emit(f"Đã hủy multi-chunk upload: {session['name']}")
+        client_socket.sendall(SERVER_VERIFY_OK)
+
+    def update_multipart_progress(self, session, part_index, received):
+        with session["file_lock"]:
+            session["received_by_part"][part_index] = received
+            total = sum(session["received_by_part"].values())
+            now = time.time()
+            if now - session["last_emit"] < 0.25 and total < session["size"]:
+                return
+            delta = total - session["last_total"]
+            elapsed = max(now - session["last_emit"], 0.001)
+            speed = delta / elapsed
+            session["last_emit"] = now
+            session["last_total"] = total
+
+        percent = int(total * 100 / session["size"]) if session["size"] else 100
+        self.transfer_signal.emit(
+            session["row_key"],
+            session["name"],
+            "multi-chunk",
+            f"{percent}%",
+            f"{self.format_bytes(speed)}/s",
+            session["path"],
+        )
+        self.stat_signal.emit()
+
+    def send_multipart_error(self, sock, message):
+        try:
+            data = str(message).encode("utf-8", errors="replace")
+            sock.sendall(MULTIPART_ERROR)
+            sock.sendall(struct.pack("!I", len(data)))
+            sock.sendall(data)
+        except Exception:
+            pass
 
     def update_transfer_row(self, key, file_name, addr, progress, status, file_path):
         if key not in self.transfer_rows:
@@ -736,6 +948,13 @@ class ServerMonitorUI(QWidget):
             counter += 1
         return candidate
 
+    def remove_incomplete_file(self, file_path):
+        try:
+            if file_path and os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            self.log_signal.emit(f"Không thể xóa file lỗi: {e}")
+
     def calculate_file_hash(self, file_path):
         digest = hashlib.sha256()
         with open(file_path, "rb") as f:
@@ -771,30 +990,6 @@ class ServerMonitorUI(QWidget):
             return f"{minutes}m {seconds}s"
         hours, minutes = divmod(minutes, 60)
         return f"{hours}h {minutes}m"
-
-
-
-        safe_dir = sanitize_subfolder(header.target_dir)
-        final_dir = os.path.join(self.upload_dir, safe_dir)
-        os.makedirs(final_dir, exist_ok=True)
-        safe_name = os.path.basename(header.file_name)
-        file_path = os.path.join(final_dir, safe_name)
-        offset = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-
-        if os.path.exists(file_path) and header.duplicate_policy == "O":
-            offset = 0
-        elif os.path.exists(file_path) and header.duplicate_policy == "N":
-            file_path = unique_file_path(final_dir, safe_name)
-            offset = 0
-        elif os.path.exists(file_path) and header.duplicate_policy == "S":
-            offset = header.file_size
-
-        remaining = max(header.file_size - offset, 0)
-        if remaining > 0 and shutil.disk_usage(final_dir).free < remaining + MIN_FREE_SPACE_BUFFER:
-            send_offset(sock, SERVER_ERROR_OFFSET)
-            raise RuntimeError("Máy chủ không đủ dung lượng lưu trữ.")
-        send_offset(sock, offset)
-        return header, file_path, offset
 
     def receive_file(self, sock, file_path, file_size, offset=0, on_chunk=None):
         mode = "ab" if offset else "wb"

@@ -30,6 +30,13 @@ MIN_FREE_SPACE_BUFFER = 5 * 1024 * 1024
 CLIENT_CONFIG_FILE = "config/client_config.json"
 SERVER_CONFIG_FILE = "config/server_config.json"
 UPLOAD_COMMAND = b"U"
+MULTIPART_COMMAND = b"M"
+MULTIPART_INIT = b"I"
+MULTIPART_PART = b"C"
+MULTIPART_FINALIZE = b"F"
+MULTIPART_ABORT = b"A"
+MULTIPART_READY = b"R"
+MULTIPART_ERROR = b"E"
 
 DUPLICATE_POLICIES = {
     "Tiếp tục nếu còn thiếu": "R",

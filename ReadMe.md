@@ -1,120 +1,155 @@
-# Upload Single File with Control
+# UPLOWER - Upload Single File with Control
 
-## Cấu trúc nộp bài
+Ứng dụng desktop mô hình Client - Server phục vụ upload một tệp với khả năng điều khiển quá trình truyền. Dự án hỗ trợ chia tệp thành nhiều chunk, truyền đồng thời qua nhiều luồng và xác minh tính toàn vẹn bằng SHA-256.
 
-- `Code/`: Mã nguồn của chương trình.
-- `DOCX/`: Báo cáo Word (`.doc`, `.docx`).
-- `Extra/`: Minh chứng, hình ảnh, file test upload, tài liệu bổ sung.
-- `PPTX/`: Slide thuyết trình (`.ppt`, `.pptx`).
+## Chức năng chính
 
-## Cách chạy nhanh
+### User / Client
 
-Double-click:
+- Đăng ký, đăng nhập và khôi phục mật khẩu.
+- Chọn hoặc kéo thả một tệp để upload.
+- Điều khiển bằng các nút `Start`, `Pause`, `Resume` và `Stop`.
+- Chọn kích thước chunk: `1 MB`, `5 MB` hoặc `10 MB`.
+- Chọn số luồng truyền đồng thời: `1`, `2` hoặc `4`.
+- Chọn giới hạn tốc độ để thuận tiện kiểm thử.
+- Theo dõi tiến trình tổng, tốc độ và trạng thái từng chunk.
+- Xem lịch sử upload và hồ sơ người dùng.
+
+### Admin / Server
+
+- Khởi động và dừng máy chủ nhận tệp.
+- Theo dõi kết nối, tiến trình nhận và nhật ký hoạt động.
+- Quản lý tài khoản, file đã nhận và lịch sử upload.
+- Xem số liệu tổng quan và phân tích.
+- Mở file hoặc thư mục lưu trữ trực tiếp từ giao diện.
+- Xác minh SHA-256 sau khi ghép xong các chunk.
+
+## Yêu cầu môi trường
+
+- Windows 10/11.
+- Python 3.10 trở lên và đã thêm vào biến môi trường `PATH`.
+- Thư viện trong [requirements.txt](requirements.txt).
+
+Cài thư viện:
 
 ```powershell
+python -m pip install -r requirements.txt
+```
+
+## Chạy nhanh
+
+Nhấp đúp vào:
+
+```text
 run_project.bat
 ```
 
-File này sẽ mở 2 cửa sổ:
+Launcher sẽ tự kiểm tra Python và PyQt5, sau đó mở hai cửa sổ:
 
-- `Upload Server`: giao diện server PyQt.
-- `Upload Client`: giao diện user PyQt.
+1. `UPLOWER Server`: máy chủ nhận tệp.
+2. `UPLOWER Client`: ứng dụng gửi tệp.
 
-Trên cửa sổ Server bấm `Bắt đầu`, sau đó bên Client chọn file và bấm `Start`.
+Tại cửa sổ Server, bấm `Bắt đầu`. Khi Client báo đã kết nối tới `127.0.0.1:8888`, chọn file và bấm `Start`.
 
-Lưu ý: cách này là chế độ chạy nhanh để kiểm thử và demo nhanh chức năng upload file.
-Script sẽ mở thẳng Server và Client để tiết kiệm thời gian, nên sẽ bỏ qua bước đăng nhập.
-Khi thuyết trình, có thể giải thích rằng terminal chỉ dùng để khởi động tiến trình,
-còn chương trình chính vẫn là các cửa sổ desktop app.
+> Chế độ này mở trực tiếp Server và Client để kiểm thử nhanh nên không đi qua màn hình đăng nhập.
 
-## Cách chạy thủ công
+## Chạy thủ công
 
-Mở terminal tại thư mục project:
+Mở terminal tại thư mục gốc của dự án.
+
+### Màn hình đăng nhập
 
 ```powershell
-pip install -r requirements.txt
+cd Code
+python main.py login
+```
+
+### Server
+
+```powershell
 cd Code
 python main.py server
 ```
 
-Mở terminal khác:
+### Client
 
 ```powershell
 cd Code
 python main.py client
 ```
 
-Các chế độ khác:
+### Admin Panel
 
 ```powershell
-python main.py login
+cd Code
 python main.py admin
 ```
 
-`admin` mở trực tiếp Admin Panel. Khi demo chuẩn, nên dùng `login` ở cả 2 terminal để đi đúng luồng đăng nhập và phân quyền.
-
-## Cách demo đúng luồng desktop app
-
-Khi demo chuẩn, nên mở **2 terminal** để chạy 2 cửa sổ đăng nhập riêng biệt.
-Cả 2 terminal đều chạy màn hình login, sau đó một bên đăng nhập Admin và một bên đăng nhập User.
-
-Terminal 1:
-
-```powershell
-cd Code
-python main.py login
-```
-
-Terminal 2:
-
-```powershell
-cd Code
-python main.py login
-```
-
-Luồng demo gợi ý:
-
-1. Ở Terminal 1, chọn vai trò `Admin` và đăng nhập bằng tài khoản mặc định.
-2. Trong Admin Panel, giới thiệu nhanh các phần: Tổng quan, Tài khoản, File, Phân tích, Bảo mật, Server, Hồ sơ, Cài đặt.
-3. Vào tab `Server` trong Admin Panel và bấm `Bắt đầu` để server lắng nghe socket.
-4. Ở Terminal 2, đăng nhập hoặc đăng ký tài khoản `User`.
-5. User vào tab `Upload file`.
-6. Kiểm tra trạng thái Server bên User. Nếu Admin đã bật Server, User sẽ thấy `Server: Đã kết nối 127.0.0.1:8888`.
-7. User chọn file hoặc kéo thả file vào vùng upload.
-8. Chọn chế độ xử lý file trùng, ví dụ `Bỏ qua nếu file đã có`, rồi bấm `Start`.
-9. Trong lúc upload có thể demo các nút `Pause`, `Resume`, `Stop`.
-10. Sau khi upload xong, quay lại Admin:
-    - Tab `Server`: xem log nhận file.
-    - Tab `File`: xem file đã nhận, người upload và bấm `Mở` để mở file.
-    - Tab `Tài khoản`: bấm `Xem` để xem chi tiết user và lịch sử upload của user đó.
-    - Tab `Phân tích`: xem thống kê theo trạng thái upload và loại file.
-
-Giải thích khi demo: đây là mô hình client-server nên Admin/Server và User/Client cần chạy song song.
-Admin là bên quản lý và bật Server, còn User là bên gửi file. `run_project.bat` chỉ là chế độ mở nhanh Server + Client để kiểm thử chức năng upload, không phải luồng demo đầy đủ.
-
 ## Tài khoản demo
 
-- Admin mặc định: `admin@uplower.local`
-- Mật khẩu admin: `admin123`
-- User mới có thể tạo tại màn hình `Đăng ký`.
-- Khi đăng nhập phải chọn đúng vai trò. Tài khoản user không thể đăng nhập vào Admin Panel.
-- Admin Panel đã đọc dữ liệu thật:
-  - `Dashboard`: tổng user, file, dung lượng, lịch sử upload gần đây.
-  - `Users`: danh sách tài khoản từ SQLite.
-  - `Files`: quét file trong `Code/Uploads`.
-  - `Analytics`: thống kê theo trạng thái upload và loại file.
-  - `Security`: thông tin auth, role control và lần đăng nhập gần nhất.
-  - `Settings`: đường dẫn cấu hình/runtime đang dùng.
+| Vai trò | Email | Mật khẩu |
+| --- | --- | --- |
+| Admin | `admin@uplower.local` | `admin123` |
 
-## Ghi chú demo
+User mới có thể được tạo tại màn hình `Đăng ký`. Khi đăng nhập, phải chọn đúng vai trò; tài khoản User không thể truy cập Admin Panel.
 
-- Khi demo cùng một máy, Server để `0.0.0.0:8888`, Client gửi tới `127.0.0.1:8888`.
-- Server xác minh SHA-256 sau khi nhận xong file.
-- Server có nút `Mở` để xem file đã nhận.
-- Client giữ style frontend mới, sidebar gồm `Upload Files`, `My Uploads` và `Hồ Sơ`.
-- `My Uploads` đọc lịch sử upload thật từ `Code/config/client_upload_history.json`.
-- Mặc định khi gửi lại cùng một file, client chọn `Bỏ qua nếu file đã có`: server chỉ xác minh checksum và trả về `Skipped`, không tạo bản sao mới.
-- Nếu muốn gửi lại thật sự, chọn `Ghi đè file cũ` hoặc `Đổi tên tự động` trong màn hình Upload Files.
-- Client có menu tốc độ demo, mặc định `5 MB/s`; nếu muốn test Pause/Resume/Stop rõ hơn thì chọn `2 MB/s`.
-- File test có thể đặt trong `Extra/test-files/`.
-- Thư mục `Code/Uploads/` là dữ liệu sinh ra khi chạy server, không cần đưa vào source code.
+Chức năng `Quên mật khẩu` tạo mã xác minh 6 chữ số có hiệu lực trong 5 phút. Do dự án chưa tích hợp dịch vụ email, mã demo được hiển thị trực tiếp trong ứng dụng.
+
+## Quy trình demo đề xuất
+
+1. Mở hai terminal tại thư mục dự án.
+2. Chạy `cd Code` rồi `python main.py login` trong cả hai terminal.
+3. Ở cửa sổ thứ nhất, chọn `Admin` và đăng nhập bằng tài khoản demo.
+4. Mở mục `Server`, sau đó bấm `Bắt đầu`.
+5. Ở cửa sổ thứ hai, đăng nhập hoặc đăng ký tài khoản User.
+6. Mở `Upload file` và kiểm tra trạng thái kết nối Server.
+7. Chọn một file, cấu hình `Chunk Size`, `Threads` và tốc độ.
+8. Bấm `Start`; trong lúc truyền, lần lượt demo `Pause`, `Resume` và `Stop`.
+9. Upload lại file nếu đã Stop, sau đó chờ hoàn tất và kiểm tra checksum.
+10. Quay lại Admin để xem file, lịch sử, tài khoản và số liệu phân tích.
+
+## Multi-chunk upload hoạt động thế nào?
+
+Client chia một file thành nhiều phần nhỏ gọi là chunk. Ví dụ, file `850 MB` với chunk `5 MB` sẽ có khoảng `170` chunk.
+
+Tùy chọn `Threads` quyết định số worker/socket gửi song song:
+
+- `1`: gửi từng chunk tuần tự.
+- `2`: tối đa hai chunk được gửi đồng thời.
+- `4`: tối đa bốn chunk được gửi đồng thời.
+
+Mỗi chunk vẫn được stream thành các gói nhỏ `64 KB`, nhờ đó chương trình không cần nạp toàn bộ file vào RAM. Server lưu các phần tạm, ghép chúng theo đúng thứ tự rồi kiểm tra SHA-256 của file hoàn chỉnh.
+
+## Địa chỉ và dữ liệu
+
+- Server lắng nghe mặc định tại `0.0.0.0:8888`.
+- Client chạy cùng máy kết nối tới `127.0.0.1:8888`.
+- File nhận được lưu trong `Code/Uploads/`.
+- Lịch sử phía Client được lưu tại `Code/config/client_upload_history.json`.
+- Cơ sở dữ liệu tài khoản nằm tại `Code/Database/users.db`.
+- Khi trùng tên, Server tự đổi tên file mới để tránh ghi đè dữ liệu cũ.
+
+## Cấu trúc dự án
+
+```text
+Code/           Mã nguồn ứng dụng
+  admin/        Giao diện và chức năng quản trị
+  auth/         Đăng nhập, đăng ký và khôi phục mật khẩu
+  client/       Giao diện và xử lý upload phía Client
+  common/       Hằng số và giao thức dùng chung
+  Database/     SQLite và lớp truy cập dữ liệu
+  server/       Socket server và xử lý nhận file
+  Uploads/      File được Server nhận khi chạy
+DOCX/           Báo cáo Word
+PPTX/           Slide thuyết trình
+Extra/          Tài liệu và file kiểm thử bổ sung
+requirements.txt
+run_project.bat
+```
+
+## Lưu ý khi kiểm thử
+
+- Dùng file đủ lớn và chọn tốc độ `2 MB/s` nếu cần quan sát rõ `Pause`, `Resume` và `Stop`.
+- Nếu Client chưa kết nối, kiểm tra Server đã được bấm `Bắt đầu` và cổng `8888` chưa bị chương trình khác sử dụng.
+- Không tắt Server khi đang ghép chunk hoặc xác minh checksum.
+- `Code/Uploads/` là dữ liệu phát sinh trong quá trình chạy, không phải mã nguồn bắt buộc khi nộp dự án.

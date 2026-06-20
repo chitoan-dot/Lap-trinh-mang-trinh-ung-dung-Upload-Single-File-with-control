@@ -155,6 +155,37 @@ class AuthManager:
 
         return self.public_user(self.get_user_by_email(user["email"]))
 
+    def reset_password(self, email, new_password):
+        email = (email or "").strip().lower()
+        if len(new_password or "") < 4:
+            raise ValueError("Mật khẩu mới phải có ít nhất 4 ký tự.")
+
+        user = self.get_user_by_email(email)
+        if not user:
+            raise ValueError("Tài khoản không tồn tại.")
+
+        password_hash, salt = self.hash_password(new_password)
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?",
+                (password_hash, salt, user["id"]),
+            )
+            conn.commit()
+
+        if sync_user_to_sql_server:
+            try:
+                sync_user_to_sql_server(
+                    full_name=user["full_name"],
+                    email=user["email"],
+                    password_hash=password_hash,
+                    salt=salt,
+                    role=user["role"],
+                    status=user["status"],
+                )
+            except Exception as e:
+                print("Không thể đồng bộ mật khẩu mới sang SQL Server:", e)
+
+        return self.public_user(self.get_user_by_email(email))
     def get_user_by_email(self, email):
         email = (email or "").strip().lower()
 

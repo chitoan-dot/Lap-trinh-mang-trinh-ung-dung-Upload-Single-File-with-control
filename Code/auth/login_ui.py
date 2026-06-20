@@ -1,10 +1,12 @@
 import json
 import os
+import secrets
+import time
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFrame, QCheckBox, QMessageBox, QStackedWidget,
-    QScrollArea
+    QScrollArea, QDialog
 )
 from PyQt5.QtCore import Qt
 
@@ -15,6 +17,190 @@ from admin.ui_admin import AdminUI
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 REMEMBER_LOGIN_FILE = os.path.join(BASE_DIR, "config", "remember_login.json")
+
+class PasswordResetDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_login = parent
+        self.current_code = None
+        self.code_expires_at = 0
+        self.setWindowTitle("UPLOWER - Quên mật khẩu")
+        self.setModal(True)
+        self.setFixedSize(520, 610)
+        self.setStyleSheet(f"""
+        QDialog {{
+            background:{BG};
+            color:{TEXT};
+            font-family:Segoe UI, Arial;
+        }}
+        QLabel {{
+            border:none;
+            background:transparent;
+        }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(34, 28, 34, 28)
+        layout.setSpacing(12)
+
+        title = QLabel("Đặt lại mật khẩu")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size:28px; font-weight:900; color:#d66cff;")
+        subtitle = QLabel("Nhập email tài khoản để nhận mã xác minh")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet(f"font-size:14px; color:{TEXT2};")
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+        layout.addSpacing(8)
+
+        layout.addWidget(self.field_label("Email tài khoản"))
+        self.email_input = QLineEdit()
+        self.email_input.setPlaceholderText("Nhập email đã đăng ký")
+        self.email_input.setFixedHeight(46)
+        self.email_input.setStyleSheet(self.input_style())
+        if parent and hasattr(parent, "login_email"):
+            self.email_input.setText(parent.login_email.text().strip())
+        layout.addWidget(self.email_input)
+
+        self.send_code_btn = QPushButton("Tạo mã xác minh")
+        self.send_code_btn.setFixedHeight(44)
+        self.send_code_btn.setStyleSheet(self.primary_button_style())
+        self.send_code_btn.clicked.connect(self.create_reset_code)
+        layout.addWidget(self.send_code_btn)
+
+        self.demo_code_label = QLabel("")
+        self.demo_code_label.setWordWrap(True)
+        self.demo_code_label.setAlignment(Qt.AlignCenter)
+        self.demo_code_label.setStyleSheet("background:#1f1238; color:#f0abfc; border:1px solid #6b21a8; border-radius:10px; padding:10px; font-weight:bold;")
+        self.demo_code_label.hide()
+        layout.addWidget(self.demo_code_label)
+
+        layout.addWidget(self.field_label("Mã xác minh"))
+        self.code_input = QLineEdit()
+        self.code_input.setPlaceholderText("Nhập mã 6 số")
+        self.code_input.setMaxLength(6)
+        self.code_input.setFixedHeight(46)
+        self.code_input.setStyleSheet(self.input_style())
+        self.code_input.setEnabled(False)
+        layout.addWidget(self.code_input)
+
+        layout.addWidget(self.field_label("Mật khẩu mới"))
+        self.password_input = QLineEdit()
+        self.password_input.setPlaceholderText("Tối thiểu 4 ký tự")
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.setFixedHeight(46)
+        self.password_input.setStyleSheet(self.input_style())
+        self.password_input.setEnabled(False)
+        layout.addWidget(self.password_input)
+
+        layout.addWidget(self.field_label("Xác nhận mật khẩu mới"))
+        self.confirm_input = QLineEdit()
+        self.confirm_input.setPlaceholderText("Nhập lại mật khẩu mới")
+        self.confirm_input.setEchoMode(QLineEdit.Password)
+        self.confirm_input.setFixedHeight(46)
+        self.confirm_input.setStyleSheet(self.input_style())
+        self.confirm_input.setEnabled(False)
+        self.confirm_input.returnPressed.connect(self.reset_password)
+        layout.addWidget(self.confirm_input)
+
+        buttons = QHBoxLayout()
+        cancel_btn = QPushButton("Hủy")
+        cancel_btn.setFixedHeight(44)
+        cancel_btn.setStyleSheet(self.secondary_button_style())
+        cancel_btn.clicked.connect(self.reject)
+        self.reset_btn = QPushButton("Đặt lại mật khẩu")
+        self.reset_btn.setFixedHeight(44)
+        self.reset_btn.setStyleSheet(self.primary_button_style())
+        self.reset_btn.setEnabled(False)
+        self.reset_btn.clicked.connect(self.reset_password)
+        buttons.addWidget(cancel_btn)
+        buttons.addWidget(self.reset_btn)
+        layout.addLayout(buttons)
+
+    def field_label(self, text):
+        label = QLabel(text)
+        label.setStyleSheet("font-size:14px; font-weight:bold; color:white;")
+        return label
+
+    def input_style(self):
+        return f"""
+        QLineEdit {{
+            background:{CARD2}; color:{TEXT}; border:1px solid #334155;
+            border-radius:12px; padding-left:13px; font-size:15px;
+        }}
+        QLineEdit:focus {{ border:1px solid {PRIMARY}; }}
+        QLineEdit:disabled {{ color:#64748b; background:#111827; }}
+        """
+
+    def primary_button_style(self):
+        return f"""
+        QPushButton {{ background:{GRADIENT}; color:white; border:none; border-radius:12px; font-size:15px; font-weight:bold; }}
+        QPushButton:hover {{ background:#ec4899; }}
+        QPushButton:disabled {{ background:#334155; color:#94a3b8; }}
+        """
+
+    def secondary_button_style(self):
+        return f"""
+        QPushButton {{ background:{CARD2}; color:white; border:1px solid #334155; border-radius:12px; font-size:15px; font-weight:bold; }}
+        QPushButton:hover {{ border:1px solid {PRIMARY}; background:#171832; }}
+        """
+
+    def create_reset_code(self):
+        email = self.email_input.text().strip().lower()
+        if not email:
+            QMessageBox.warning(self, "UPLOWER", "Vui lòng nhập email tài khoản.")
+            return
+        if not auth_manager.get_user_by_email(email):
+            QMessageBox.warning(self, "UPLOWER", "Không tìm thấy tài khoản với email này.")
+            return
+
+        self.current_code = f"{secrets.randbelow(900000) + 100000:06d}"
+        self.code_expires_at = time.monotonic() + 300
+        self.demo_code_label.setText(
+            f"Mã xác minh demo: {self.current_code}\nMã có hiệu lực trong 5 phút."
+        )
+        self.demo_code_label.show()
+        for field in (self.code_input, self.password_input, self.confirm_input):
+            field.setEnabled(True)
+        self.reset_btn.setEnabled(True)
+        self.code_input.setFocus()
+
+    def reset_password(self):
+        if not self.current_code:
+            QMessageBox.warning(self, "UPLOWER", "Vui lòng tạo mã xác minh trước.")
+            return
+        if time.monotonic() > self.code_expires_at:
+            self.current_code = None
+            self.reset_btn.setEnabled(False)
+            QMessageBox.warning(self, "UPLOWER", "Mã xác minh đã hết hạn. Vui lòng tạo mã mới.")
+            return
+
+        code = self.code_input.text().strip()
+        new_password = self.password_input.text()
+        confirm_password = self.confirm_input.text()
+        if not secrets.compare_digest(code, self.current_code):
+            QMessageBox.warning(self, "UPLOWER", "Mã xác minh không đúng.")
+            return
+        if len(new_password) < 4:
+            QMessageBox.warning(self, "UPLOWER", "Mật khẩu mới phải có ít nhất 4 ký tự.")
+            return
+        if new_password != confirm_password:
+            QMessageBox.warning(self, "UPLOWER", "Xác nhận mật khẩu mới không khớp.")
+            return
+
+        email = self.email_input.text().strip().lower()
+        try:
+            auth_manager.reset_password(email, new_password)
+        except ValueError as e:
+            QMessageBox.warning(self, "UPLOWER", str(e))
+            return
+
+        self.current_code = None
+        if self.parent_login and hasattr(self.parent_login, "login_email"):
+            self.parent_login.login_email.setText(email)
+            self.parent_login.login_password.clear()
+        QMessageBox.information(self, "UPLOWER", "Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.")
+        self.accept()
 
 class LoginUI(QWidget):
     def __init__(self, initial_role="user"):
@@ -264,9 +450,8 @@ class LoginUI(QWidget):
 
         forgot = QPushButton("Quên mật khẩu?")
         forgot.setStyleSheet(self.link_button_style())
-        forgot.clicked.connect(
-            lambda: QMessageBox.information(self, "UPLOWER", "Chức năng này sẽ bổ sung sau.")
-        )
+        forgot.clicked.connect(self.show_password_reset)
+
 
         option_row.addWidget(self.remember_checkbox)
         option_row.addStretch()
@@ -276,25 +461,6 @@ class LoginUI(QWidget):
         login_btn.setFixedHeight(50)
         login_btn.setStyleSheet(self.primary_button_style())
         login_btn.clicked.connect(self.open_app)
-
-        google_btn = QPushButton("G  Đăng nhập với Google")
-        google_btn.setFixedHeight(43)
-        google_btn.setStyleSheet(f"""
-        QPushButton {{
-            background:{CARD2};
-            color:{TEXT};
-            border:1px solid #334155;
-            border-radius:12px;
-            font-weight:bold;
-        }}
-        QPushButton:hover {{
-            background:#171832;
-            border:1px solid {PRIMARY};
-        }}
-        QPushButton:pressed {{
-            background:#30174f;
-        }}
-        """)
 
         register_btn = QPushButton("Chưa có tài khoản? Đăng ký ngay")
         register_btn.setFixedHeight(42)
@@ -312,7 +478,6 @@ class LoginUI(QWidget):
         box.addWidget(self.login_password)
         box.addLayout(option_row)
         box.addWidget(login_btn)
-        box.addWidget(google_btn)
         box.addWidget(register_btn)
 
         return page
@@ -412,6 +577,10 @@ class LoginUI(QWidget):
 
         if hasattr(self, "login_email") and hasattr(self, "remember_checkbox"):
             self.load_remembered_login(role)
+
+    def show_password_reset(self):
+        self.password_reset_dialog = PasswordResetDialog(self)
+        self.password_reset_dialog.exec_()
 
     def show_register(self):
         self.set_role("user")
