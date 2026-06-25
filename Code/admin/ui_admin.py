@@ -65,7 +65,6 @@ class AdminUI(QWidget):
             self.analytics_page_ui(),
             ServerMonitorUI(),
             self.profile_page,
-            self.settings_page_ui(),
         ]
 
         for page in pages:
@@ -133,7 +132,6 @@ class AdminUI(QWidget):
         self.btn_analytics = self.nav_button("▥", "Phân tích")
         self.btn_server = self.nav_button("▣", "Server")
         self.btn_profile = self.nav_button("♡", "Hồ sơ")
-        self.btn_settings = self.nav_button("⚙", "Cài đặt")
 
         buttons = [
             (self.btn_dashboard, 0),
@@ -142,7 +140,6 @@ class AdminUI(QWidget):
             (self.btn_analytics, 3),
             (self.btn_server, 4),
             (self.btn_profile, 5),
-            (self.btn_settings, 6),
         ]
 
         for btn, index in buttons:
@@ -919,30 +916,6 @@ class AdminUI(QWidget):
             for item in history[:10]
         ]
         layout.addWidget(self.data_table(["Thời gian", "File", "Dung lượng", "Tốc độ", "Trạng thái"], recent_rows, 400))
-        return page
-
-    def settings_page_ui(self):
-        page, layout = self.page_base()
-        layout.addLayout(self.topbar("Cài đặt", "Xem cấu hình runtime đang dùng bởi desktop app"))
-        summary = self.admin_summary()
-
-        stats = QHBoxLayout()
-        stats.setSpacing(30)
-        stats.addWidget(self.stat_card("▣", "SQLite", "Database xác thực"))
-        stats.addWidget(self.stat_card("▤", str(len(summary["files"])), "File đã lưu"))
-        stats.addWidget(self.stat_card("♧", str(len(summary["users"])), "Tài khoản"))
-        stats.addWidget(self.stat_card("▰", self.format_bytes(summary["storage"]), "Dung lượng"))
-        layout.addLayout(stats)
-
-        rows = [
-            ["Database", auth_manager.db_path],
-            ["Thư mục upload", UPLOAD_DIR],
-            ["Email admin mặc định", "admin@uplower.local"],
-            ["Mật khẩu admin mặc định", "admin123"],
-            ["Lịch sử client", "Code/config/client_upload_history.json"],
-            ["Dữ liệu hồ sơ", "Code/config/profile_data.json"],
-        ]
-        layout.addWidget(self.data_table(["Cài đặt", "Giá trị"], rows, 420))
         return page
 
     def stat_card(self, icon, value, label, change=""):

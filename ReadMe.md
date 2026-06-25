@@ -1,5 +1,8 @@
 # UPLOWER - Upload Single File with Control
 
+- Project name: UPLOWER
+- Project code: Upload Single File with Control
+
 Ứng dụng desktop mô hình Client - Server phục vụ upload một tệp với khả năng điều khiển quá trình truyền. Dự án hỗ trợ chia tệp thành nhiều chunk, truyền đồng thời qua nhiều luồng và xác minh tính toàn vẹn bằng SHA-256.
 
 ## Chức năng chính
@@ -28,30 +31,13 @@
 
 - Windows 10/11.
 - Python 3.10 trở lên và đã thêm vào biến môi trường `PATH`.
-- Thư viện trong [requirements.txt](requirements.txt).
+- Thư viện trong [Code/requirements.txt](Code/requirements.txt).
 
 Cài thư viện:
 
 ```powershell
-python -m pip install -r requirements.txt
+python -m pip install -r Code/requirements.txt
 ```
-
-## Chạy nhanh
-
-Nhấp đúp vào:
-
-```text
-run_project.bat
-```
-
-Launcher sẽ tự kiểm tra Python và PyQt5, sau đó mở hai cửa sổ:
-
-1. `UPLOWER Server`: máy chủ nhận tệp.
-2. `UPLOWER Client`: ứng dụng gửi tệp.
-
-Tại cửa sổ Server, bấm `Bắt đầu`. Khi Client báo đã kết nối tới `127.0.0.1:8888`, chọn file và bấm `Start`.
-
-> Chế độ này mở trực tiếp Server và Client để kiểm thử nhanh nên không đi qua màn hình đăng nhập.
 
 ## Chạy thủ công
 
@@ -137,14 +123,17 @@ Code/           Mã nguồn ứng dụng
   auth/         Đăng nhập, đăng ký và khôi phục mật khẩu
   client/       Giao diện và xử lý upload phía Client
   common/       Hằng số và giao thức dùng chung
+  config/       Cấu hình Client và Server
   Database/     SQLite và lớp truy cập dữ liệu
+  layout/       Theme và style giao diện
+  profile/      Giao diện hồ sơ người dùng
   server/       Socket server và xử lý nhận file
+  requirements.txt
   Uploads/      File được Server nhận khi chạy
 DOCX/           Báo cáo Word
-PPTX/           Slide thuyết trình
 Extra/          Tài liệu và file kiểm thử bổ sung
-requirements.txt
-run_project.bat
+PPTX/           Slide thuyết trình
+ReadMe.md       Tên dự án, mã dự án và hướng dẫn chạy
 ```
 
 ## Lưu ý khi kiểm thử
