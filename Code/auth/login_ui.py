@@ -12,6 +12,7 @@ from PyQt5.QtCore import Qt
 
 from layout.theme import *
 from auth.auth_manager import auth_manager
+from auth import remote_auth
 from client.ui_client import ClientUI
 from admin.ui_admin import AdminUI
 
@@ -150,7 +151,14 @@ class PasswordResetDialog(QDialog):
         if not email:
             QMessageBox.warning(self, "UPLOWER", "Vui lòng nhập email tài khoản.")
             return
-        if not auth_manager.get_user_by_email(email):
+
+        try:
+            user = self.lookup_user(email)
+        except ValueError as e:
+            QMessageBox.warning(self, "UPLOWER", str(e))
+            return
+
+        if not user:
             QMessageBox.warning(self, "UPLOWER", "Không tìm thấy tài khoản với email này.")
             return
 
@@ -190,7 +198,7 @@ class PasswordResetDialog(QDialog):
 
         email = self.email_input.text().strip().lower()
         try:
-            auth_manager.reset_password(email, new_password)
+            self.change_password(email, new_password)
         except ValueError as e:
             QMessageBox.warning(self, "UPLOWER", str(e))
             return
@@ -201,6 +209,21 @@ class PasswordResetDialog(QDialog):
             self.parent_login.login_password.clear()
         QMessageBox.information(self, "UPLOWER", "Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.")
         self.accept()
+
+    def uses_remote_user_auth(self):
+        if self.parent_login and getattr(self.parent_login, "role", "user") == "admin":
+            return False
+        return True
+
+    def lookup_user(self, email):
+        if self.uses_remote_user_auth():
+            return remote_auth.get_user_by_email(email)
+        return auth_manager.public_user(auth_manager.get_user_by_email(email))
+
+    def change_password(self, email, new_password):
+        if self.uses_remote_user_auth():
+            return remote_auth.reset_password(email, new_password)
+        return auth_manager.reset_password(email, new_password)
 
 class LoginUI(QWidget):
     def __init__(self, initial_role="user"):
@@ -669,7 +692,10 @@ class LoginUI(QWidget):
             return
 
         try:
-            user = auth_manager.authenticate(email, password, expected_role=self.role)
+            if self.role == "user":
+                user = remote_auth.authenticate(email, password, expected_role=self.role)
+            else:
+                user = auth_manager.authenticate(email, password, expected_role=self.role)
         except ValueError as e:
             QMessageBox.warning(self, "UPLOWER", str(e))
             return
@@ -703,7 +729,7 @@ class LoginUI(QWidget):
             return
 
         try:
-            auth_manager.create_user(name, email, password, role="user")
+            remote_auth.create_user(name, email, password, role="user")
         except ValueError as e:
             QMessageBox.warning(self, "UPLOWER", str(e))
             return

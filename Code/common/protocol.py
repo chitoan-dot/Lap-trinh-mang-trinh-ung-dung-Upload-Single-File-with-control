@@ -1,3 +1,4 @@
+import json
 import struct
 from dataclasses import dataclass
 from common.constants import UPLOAD_COMMAND
@@ -46,3 +47,17 @@ def send_offset(sock, offset: int):
 
 def receive_offset(sock) -> int:
     return struct.unpack("!Q", recv_exact(sock, 8))[0]
+
+
+def send_json_message(sock, payload):
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    sock.sendall(struct.pack("!I", len(data)))
+    sock.sendall(data)
+
+
+def receive_json_message(sock, max_size=1024 * 1024):
+    size = struct.unpack("!I", recv_exact(sock, 4))[0]
+    if size > max_size:
+        raise ValueError("Gói dữ liệu JSON quá lớn.")
+    data = recv_exact(sock, size)
+    return json.loads(data.decode("utf-8"))

@@ -30,6 +30,7 @@ MIN_FREE_SPACE_BUFFER = 5 * 1024 * 1024
 CLIENT_CONFIG_FILE = "config/client_config.json"
 SERVER_CONFIG_FILE = "config/server_config.json"
 UPLOAD_COMMAND = b"U"
+AUTH_COMMAND = b"A"
 MULTIPART_COMMAND = b"M"
 MULTIPART_INIT = b"I"
 MULTIPART_PART = b"C"

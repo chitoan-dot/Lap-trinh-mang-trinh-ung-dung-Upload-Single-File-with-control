@@ -11,6 +11,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import *
 
 from common.constants import (
+    AUTH_COMMAND,
     MULTIPART_COMMAND,
     MULTIPART_ABORT,
     MULTIPART_ERROR,
@@ -22,6 +23,8 @@ from common.constants import (
     SERVER_VERIFY_OK,
     SERVER_VERIFY_SKIPPED,
 )
+from common.protocol import receive_json_message, send_json_message
+from auth.auth_manager import auth_manager
 from layout.theme import *
 
 class ServerMonitorUI(QWidget):
@@ -533,6 +536,9 @@ class ServerMonitorUI(QWidget):
             if command == "P":
                 client_socket.sendall(b"OK")
                 return
+            if command == AUTH_COMMAND.decode():
+                self.handle_auth_client(client_socket, addr)
+                return
             if command == MULTIPART_COMMAND.decode():
                 self.handle_multipart_client(client_socket, addr)
                 return
@@ -652,6 +658,43 @@ class ServerMonitorUI(QWidget):
 
             self.active_transfers = max(0, self.active_transfers - 1)
             self.stat_signal.emit()
+
+    def handle_auth_client(self, client_socket, addr):
+        try:
+            request = receive_json_message(client_socket)
+            action = request.get("action")
+
+            if action == "authenticate":
+                data = auth_manager.authenticate(
+                    request.get("email", ""),
+                    request.get("password", ""),
+                    request.get("expected_role"),
+                )
+            elif action == "create_user":
+                data = auth_manager.create_user(
+                    request.get("full_name", ""),
+                    request.get("email", ""),
+                    request.get("password", ""),
+                    request.get("role", "user"),
+                )
+                data = auth_manager.public_user(data)
+            elif action == "get_user_by_email":
+                data = auth_manager.public_user(
+                    auth_manager.get_user_by_email(request.get("email", ""))
+                )
+            elif action == "reset_password":
+                data = auth_manager.reset_password(
+                    request.get("email", ""),
+                    request.get("new_password", ""),
+                )
+            else:
+                raise ValueError("Lệnh xác thực không hợp lệ.")
+
+            send_json_message(client_socket, {"ok": True, "data": data})
+            self.log_signal.emit(f"Xác thực {action} từ {addr[0]}:{addr[1]} thành công.")
+        except Exception as e:
+            send_json_message(client_socket, {"ok": False, "error": str(e)})
+            self.log_signal.emit(f"Lỗi xác thực từ {addr[0]}:{addr[1]}: {e}")
 
     def handle_multipart_client(self, client_socket, addr):
         mode = self.recv_exact(client_socket, 1)

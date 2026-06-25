@@ -71,6 +71,60 @@ cd Code
 python main.py admin
 ```
 
+## Chạy 2 máy cùng Wi-Fi
+
+Máy Server là nơi giữ database tài khoản chính tại `Code/Database/users.db`.
+
+### Máy A - Server
+
+1. Kết nối cùng Wi-Fi với máy Client.
+2. Chạy Server:
+
+```powershell
+cd Code
+python main.py server
+```
+
+3. Bấm `Bắt đầu` để Server lắng nghe cổng `8888`.
+4. Lấy địa chỉ IPv4 LAN của máy Server:
+
+```powershell
+ipconfig
+```
+
+Tìm dòng `IPv4 Address`, ví dụ:
+
+```text
+192.168.1.10
+```
+
+Nếu Windows Firewall hỏi quyền truy cập mạng, chọn `Allow access`.
+
+### Máy B - Client
+
+1. Kết nối cùng Wi-Fi với máy Server.
+2. Mở `Code/config/client_config.json`.
+3. Sửa `server_ip` thành IPv4 của máy Server:
+
+```json
+{
+  "server_ip": "192.168.1.10",
+  "server_port": "8888",
+  "server_folder": "",
+  "duplicate_policy": "Tiep tuc file dang do",
+  "speed_limit": "5 MB/s"
+}
+```
+
+4. Chạy Client/Login:
+
+```powershell
+cd Code
+python main.py login
+```
+
+Tài khoản User đăng ký, đăng nhập và đặt lại mật khẩu sẽ được gửi tới Server để dùng chung database. Tài khoản Admin vẫn dùng database local trên máy Server để có thể đăng nhập và bật Server.
+
 ## Tài khoản demo
 
 | Vai trò | Email | Mật khẩu |
@@ -109,10 +163,10 @@ Mỗi chunk vẫn được stream thành các gói nhỏ `64 KB`, nhờ đó ch�
 ## Địa chỉ và dữ liệu
 
 - Server lắng nghe mặc định tại `0.0.0.0:8888`.
-- Client chạy cùng máy kết nối tới `127.0.0.1:8888`.
+- Client kết nối tới địa chỉ trong `Code/config/client_config.json`.
 - File nhận được lưu trong `Code/Uploads/`.
 - Lịch sử phía Client được lưu tại `Code/config/client_upload_history.json`.
-- Cơ sở dữ liệu tài khoản nằm tại `Code/Database/users.db`.
+- Cơ sở dữ liệu tài khoản chính nằm tại `Code/Database/users.db` trên máy Server.
 - Khi trùng tên, Server tự đổi tên file mới để tránh ghi đè dữ liệu cũ.
 
 ## Cấu trúc dự án

@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 from client.socket_client import SocketClient
 from client.upload_history import add_upload_record
 from client.upload_manager import UploadManager
+from common.config import client_server_address
 from common.constants import CHUNK_SIZE, SERVER_ERROR_OFFSET
 from layout.theme import *
 from layout.style import *
@@ -95,8 +96,7 @@ class UploadUI(QWidget):
         self.upload_state = "stopped"
         self.upload_thread = None
         self.socket_client = None
-        self.server_host = "127.0.0.1"
-        self.server_port = 8888
+        self.server_host, self.server_port = client_server_address()
         self.last_upload_file_path = ""
         self.last_upload_file_size = 0
         self.current_chunk_ranges = []
