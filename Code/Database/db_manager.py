@@ -1,11 +1,20 @@
 from auth.auth_manager import auth_manager
 
-from Database.sql_server_sync import (
-    sync_file_to_sql_server,
-    sync_upload_log_to_sql_server,
-    get_all_sql_users,
-    get_all_sql_files
-)
+try:
+    from Database import sql_server_sync as _sql_server_sync
+    from Database.sql_server_sync import (
+        sync_file_to_sql_server,
+        sync_upload_log_to_sql_server,
+        get_all_sql_users,
+        get_all_sql_files
+    )
+    if getattr(_sql_server_sync, "pyodbc", None) is None:
+        raise ImportError("pyodbc is not available")
+except Exception:
+    sync_file_to_sql_server = None
+    sync_upload_log_to_sql_server = None
+    get_all_sql_users = None
+    get_all_sql_files = None
 
 
 # ==========================
@@ -50,6 +59,8 @@ def save_uploaded_file(
     file_path,
     status="uploaded"
 ):
+    if not sync_file_to_sql_server:
+        return None
     return sync_file_to_sql_server(
         user_email=user_email,
         file_name=file_name,
@@ -69,6 +80,8 @@ def save_upload_log(
     action,
     description
 ):
+    if not sync_upload_log_to_sql_server:
+        return None
     return sync_upload_log_to_sql_server(
         user_email=user_email,
         action=action,
@@ -81,8 +94,12 @@ def save_upload_log(
 # ==========================
 
 def get_all_users():
+    if not get_all_sql_users:
+        return []
     return get_all_sql_users()
 
 
 def get_all_files():
+    if not get_all_sql_files:
+        return []
     return get_all_sql_files()

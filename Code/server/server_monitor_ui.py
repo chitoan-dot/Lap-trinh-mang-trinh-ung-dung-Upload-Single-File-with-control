@@ -584,6 +584,9 @@ class ServerMonitorUI(QWidget):
             row_key = f"{addr_text}-{safe_name}"
             self.transfer_signal.emit(row_key, safe_name, addr_text, "0%", "Đang nhận", save_path)
 
+            if file_size == 0 and offset == 0 and not os.path.exists(save_path):
+                open(save_path, "wb").close()
+
             if offset >= file_size:
                 if os.path.exists(save_path) and self.calculate_file_hash(save_path) == expected_hash:
                     client_socket.sendall(SERVER_VERIFY_SKIPPED)

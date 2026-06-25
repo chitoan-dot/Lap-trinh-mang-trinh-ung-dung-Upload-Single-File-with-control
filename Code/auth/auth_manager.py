@@ -6,10 +6,13 @@ from contextlib import contextmanager
 from datetime import datetime
 
 try:
+    from Database import sql_server_sync as _sql_server_sync
     from Database.sql_server_sync import (
         sync_user_to_sql_server,
         sync_login_to_sql_server
     )
+    if getattr(_sql_server_sync, "pyodbc", None) is None:
+        raise ImportError("pyodbc is not available")
 except Exception:
     sync_user_to_sql_server = None
     sync_login_to_sql_server = None

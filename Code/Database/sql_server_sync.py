@@ -1,11 +1,17 @@
-import pyodbc
 from datetime import datetime
+
+try:
+    import pyodbc
+except ImportError:
+    pyodbc = None
 
 SERVER = r"localhost\SQLEXPRESS"
 DATABASE = "UploaderDB"
 
 
 def get_connection():
+    if pyodbc is None:
+        raise RuntimeError("pyodbc chưa được cài đặt; SQL Server sync đang bị tắt.")
     conn_str = (
         "DRIVER={ODBC Driver 17 for SQL Server};"
         f"SERVER={SERVER};"
