@@ -45,7 +45,7 @@ THREAD_OPTIONS = {
     "4": 4,
 }
 
-DEFAULT_DUPLICATE_POLICY = "N"
+DEFAULT_DUPLICATE_POLICY = "S"
 MAX_VISIBLE_CHUNK_ROWS = 500
 
 
@@ -218,6 +218,35 @@ class UploadUI(QWidget):
         """)
         self.browse_btn.clicked.connect(self.pick_file)
 
+        self.clear_file_btn = QPushButton("Xóa file")
+        self.clear_file_btn.setFixedSize(132, 46)
+        self.clear_file_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_file_btn.setStyleSheet(f"""
+            QPushButton {{
+                background:#2a1425;
+                color:#fecdd3;
+                border:1px solid #7f1d1d;
+                border-radius:14px;
+                font-size:15px;
+                font-weight:bold;
+            }}
+            QPushButton:hover {{
+                background:#3b1628;
+                color:white;
+                border:1px solid #fb7185;
+            }}
+            QPushButton:pressed {{
+                background:#881337;
+                color:white;
+            }}
+            QPushButton:disabled {{
+                background:#141827;
+                color:#64748b;
+                border:1px solid #26324a;
+            }}
+        """)
+        self.clear_file_btn.clicked.connect(self.clear_selected_file)
+
         self.info_label = QLabel("File: Chưa chọn file  |  Dung lượng: 0 MB  |  Trạng thái: Sẵn sàng")
         self.info_label.setAlignment(Qt.AlignCenter)
         self.info_label.setStyleSheet("""
@@ -333,7 +362,12 @@ class UploadUI(QWidget):
         box.addWidget(drop_title, 0, Qt.AlignHCenter)
         box.addWidget(self.file_label, 0, Qt.AlignHCenter)
         box.addSpacing(6)
-        box.addWidget(self.browse_btn, 0, Qt.AlignHCenter)
+        file_buttons = QHBoxLayout()
+        file_buttons.setAlignment(Qt.AlignCenter)
+        file_buttons.setSpacing(12)
+        file_buttons.addWidget(self.browse_btn)
+        file_buttons.addWidget(self.clear_file_btn)
+        box.addLayout(file_buttons)
         box.addSpacing(4)
         box.addWidget(self.info_label, 0, Qt.AlignHCenter)
         box.addWidget(self.progress, 0, Qt.AlignHCenter)
@@ -521,11 +555,32 @@ class UploadUI(QWidget):
         self.refresh_chunk_plan()
         self.update_buttons()
 
+    def clear_selected_file(self):
+        if self.upload_state != "stopped":
+            QMessageBox.warning(self, "UPLOWER", "Không thể xóa file đã chọn khi đang upload.")
+            return
+
+        self.selected_file = None
+        self.last_upload_file_path = ""
+        self.last_upload_file_size = 0
+        self.current_chunk_ranges = []
+        self.file_label.setText("Chưa chọn file nào")
+        self.info_label.setText("File: Chưa chọn file  |  Dung lượng: 0 MB  |  Trạng thái: Sẵn sàng")
+        self.progress.setValue(0)
+        if hasattr(self, "chunk_table"):
+            self.chunk_table.setRowCount(0)
+        if hasattr(self, "chunk_plan_label"):
+            self.chunk_plan_label.setText("Chunks: 0  |  Uploaded: 0 / 0 chunks  |  Speed: --")
+        self.update_buttons()
+
     def selected_chunk_size(self):
         return CHUNK_SIZE_OPTIONS.get(self.chunk_size_combo.currentText(), 5 * 1024 * 1024)
 
     def selected_thread_count(self):
         return THREAD_OPTIONS.get(self.thread_combo.currentText(), 1)
+
+    def selected_duplicate_policy(self):
+        return DEFAULT_DUPLICATE_POLICY
 
     def refresh_chunk_plan(self, *_args):
         if not hasattr(self, "chunk_table"):
@@ -619,7 +674,7 @@ class UploadUI(QWidget):
 
     def start_upload(self):
         if not self.selected_file:
-            QMessageBox.warning(self, "UPLOWER", "Bạn chưa chọn file để upload.")
+            self.show_no_file_warning()
             return
         if not self.probe_server_connection():
             self.set_server_status(False, f"Server: Chưa kết nối {self.server_host}:{self.server_port}")
@@ -635,6 +690,10 @@ class UploadUI(QWidget):
         self.upload_thread.start()
 
     def pause_upload(self):
+        if not self.selected_file:
+            self.show_no_file_warning()
+            return
+
         if self.upload_state == "uploading":
             self.upload_state = "paused"
 
@@ -653,6 +712,10 @@ class UploadUI(QWidget):
             self.update_buttons()
 
     def resume_upload(self):
+        if not self.selected_file:
+            self.show_no_file_warning()
+            return
+
         if self.upload_state == "paused":
             self.upload_state = "uploading"
 
@@ -671,6 +734,10 @@ class UploadUI(QWidget):
             self.update_buttons()
 
     def stop_upload(self):
+        if not self.selected_file:
+            self.show_no_file_warning()
+            return
+
         if self.upload_state in ("uploading", "paused"):
 
             # THÊM: lưu log stop vào SQL Server
@@ -716,7 +783,7 @@ class UploadUI(QWidget):
             self.socket_client = SocketClient(self.server_host, self.server_port)
             sock = self.socket_client.connect()
             manager = UploadManager(sock)
-            offset = manager.prepare_upload(file_path, target_dir="", duplicate_policy=DEFAULT_DUPLICATE_POLICY)
+            offset = manager.prepare_upload(file_path, target_dir="", duplicate_policy=self.selected_duplicate_policy())
 
             if offset == SERVER_ERROR_OFFSET:
                 raise RuntimeError("Server không đủ dung lượng để nhận file.")
@@ -904,7 +971,7 @@ class UploadUI(QWidget):
             session_id = init_manager.prepare_multipart_upload(
                 file_path,
                 target_dir="",
-                duplicate_policy=DEFAULT_DUPLICATE_POLICY,
+                duplicate_policy=self.selected_duplicate_policy(),
                 part_count=total_chunks,
             )
             init_client.close()
@@ -920,6 +987,18 @@ class UploadUI(QWidget):
                     user_email=self.user_email,
                     user_name=self.user_name,
                 )
+                if save_upload_log:
+                    try:
+                        save_upload_log(
+                            user_email=self.user_email,
+                            action="upload_skipped",
+                            description=f"File đã tồn tại trên server: {file_name}"
+                        )
+                    except Exception as e:
+                        print("SQL Server log skipped error:", e)
+                for index in range(min(total_chunks, MAX_VISIBLE_CHUNK_ROWS)):
+                    self.chunk_status_signal.emit(index, "Skipped", 100)
+                self.chunk_summary_signal.emit(0, total_chunks, "Skipped")
                 self.progress_signal.emit(100, f"File: {file_name}  |  Dung lượng: {self.format_bytes(file_size)}  |  Trạng thái: Skipped")
                 self.finished_signal.emit(True, "File đã có trên server và đã được xác minh.")
                 return
@@ -1157,13 +1236,19 @@ class UploadUI(QWidget):
         else:
             QMessageBox.warning(self, "UPLOWER", message)
 
+    def show_no_file_warning(self):
+        QMessageBox.warning(self, "UPLOWER", "Vui lòng chọn file trước khi thao tác.")
+
     def update_buttons(self):
         has_file = self.selected_file is not None
-        self.start_btn.setEnabled(has_file and self.upload_state == "stopped")
-        self.pause_btn.setEnabled(self.upload_state == "uploading")
-        self.resume_btn.setEnabled(self.upload_state == "paused")
-        self.stop_btn.setEnabled(self.upload_state in ("uploading", "paused"))
+        no_file_idle = not has_file and self.upload_state == "stopped"
+        self.start_btn.setEnabled(no_file_idle or (has_file and self.upload_state == "stopped"))
+        self.pause_btn.setEnabled(no_file_idle or self.upload_state == "uploading")
+        self.resume_btn.setEnabled(no_file_idle or self.upload_state == "paused")
+        self.stop_btn.setEnabled(no_file_idle or self.upload_state in ("uploading", "paused"))
         self.browse_btn.setEnabled(self.upload_state == "stopped")
+        if hasattr(self, "clear_file_btn"):
+            self.clear_file_btn.setEnabled(has_file and self.upload_state == "stopped")
         self.chunk_size_combo.setEnabled(self.upload_state == "stopped")
         self.thread_combo.setEnabled(self.upload_state == "stopped")
         self.speed_combo.setEnabled(self.upload_state == "stopped")

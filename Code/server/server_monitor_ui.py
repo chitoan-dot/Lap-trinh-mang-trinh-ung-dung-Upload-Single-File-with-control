@@ -567,14 +567,22 @@ class ServerMonitorUI(QWidget):
             save_path = os.path.join(save_dir, safe_name)
 
             offset = os.path.getsize(save_path) if os.path.exists(save_path) else 0
-            if duplicate_policy == "O":
+            if duplicate_policy == "S":
+                existing_path = self.find_existing_file_by_hash(save_dir, expected_hash, file_size)
+                if existing_path:
+                    save_path = existing_path
+                    safe_name = os.path.basename(save_path)
+                    offset = file_size
+                elif os.path.exists(save_path):
+                    save_path = self.unique_file_path(save_dir, safe_name)
+                    safe_name = os.path.basename(save_path)
+                    offset = 0
+            elif duplicate_policy == "O":
                 offset = 0
             elif os.path.exists(save_path) and duplicate_policy == "N":
                 save_path = self.unique_file_path(save_dir, safe_name)
                 safe_name = os.path.basename(save_path)
                 offset = 0
-            elif os.path.exists(save_path) and duplicate_policy == "S":
-                offset = file_size
             elif os.path.exists(save_path) and offset >= file_size:
                 if self.calculate_file_hash(save_path) != expected_hash:
                     offset = 0
@@ -732,13 +740,19 @@ class ServerMonitorUI(QWidget):
             os.makedirs(save_dir, exist_ok=True)
 
             save_path = os.path.join(save_dir, safe_name)
-            if duplicate_policy == "O":
-                pass
-            elif os.path.exists(save_path) and duplicate_policy == "S":
-                if self.calculate_file_hash(save_path) == expected_hash:
+            if duplicate_policy == "S":
+                existing_path = self.find_existing_file_by_hash(save_dir, expected_hash, file_size)
+                if existing_path:
+                    safe_name = os.path.basename(existing_path)
+                    row_key = f"multi-skip-{addr[0]}:{addr[1]}-{safe_name}"
                     client_socket.sendall(SERVER_VERIFY_SKIPPED)
+                    self.transfer_signal.emit(row_key, safe_name, "multi-chunk", "100%", "Đã bỏ qua", existing_path)
+                    self.log_signal.emit(f"Đã bỏ qua file multi-chunk có sẵn: {safe_name}")
                     return
-                save_path = self.unique_file_path(save_dir, safe_name)
+                if os.path.exists(save_path):
+                    save_path = self.unique_file_path(save_dir, safe_name)
+            elif duplicate_policy == "O":
+                pass
             elif os.path.exists(save_path):
                 save_path = self.unique_file_path(save_dir, safe_name)
 
@@ -993,6 +1007,27 @@ class ServerMonitorUI(QWidget):
             candidate = os.path.join(folder, f"{stem} ({counter}){ext}")
             counter += 1
         return candidate
+
+    def find_existing_file_by_hash(self, folder, expected_hash, file_size):
+        if not expected_hash or len(expected_hash) != 32 or not os.path.isdir(folder):
+            return None
+
+        try:
+            for file_name in os.listdir(folder):
+                file_path = os.path.join(folder, file_name)
+                if not os.path.isfile(file_path):
+                    continue
+                try:
+                    if os.path.getsize(file_path) != file_size:
+                        continue
+                    if self.calculate_file_hash(file_path) == expected_hash:
+                        return file_path
+                except Exception:
+                    continue
+        except Exception as e:
+            self.log_signal.emit(f"Không thể kiểm tra file trùng: {e}")
+
+        return None
 
     def remove_incomplete_file(self, file_path):
         try:

@@ -12,7 +12,6 @@ from PyQt5.QtCore import Qt
 
 from layout.theme import *
 from auth.auth_manager import auth_manager
-from auth import remote_auth
 from client.ui_client import ClientUI
 from admin.ui_admin import AdminUI
 
@@ -210,19 +209,10 @@ class PasswordResetDialog(QDialog):
         QMessageBox.information(self, "UPLOWER", "Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.")
         self.accept()
 
-    def uses_remote_user_auth(self):
-        if self.parent_login and getattr(self.parent_login, "role", "user") == "admin":
-            return False
-        return True
-
     def lookup_user(self, email):
-        if self.uses_remote_user_auth():
-            return remote_auth.get_user_by_email(email)
         return auth_manager.public_user(auth_manager.get_user_by_email(email))
 
     def change_password(self, email, new_password):
-        if self.uses_remote_user_auth():
-            return remote_auth.reset_password(email, new_password)
         return auth_manager.reset_password(email, new_password)
 
 class LoginUI(QWidget):
@@ -692,10 +682,7 @@ class LoginUI(QWidget):
             return
 
         try:
-            if self.role == "user":
-                user = remote_auth.authenticate(email, password, expected_role=self.role)
-            else:
-                user = auth_manager.authenticate(email, password, expected_role=self.role)
+            user = auth_manager.authenticate(email, password, expected_role=self.role)
         except ValueError as e:
             QMessageBox.warning(self, "UPLOWER", str(e))
             return
@@ -729,7 +716,7 @@ class LoginUI(QWidget):
             return
 
         try:
-            remote_auth.create_user(name, email, password, role="user")
+            auth_manager.create_user(name, email, password, role="user")
         except ValueError as e:
             QMessageBox.warning(self, "UPLOWER", str(e))
             return
