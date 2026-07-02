@@ -461,7 +461,7 @@ class AdminUI(QWidget):
         scroll.setWidget(content)
         return scroll, layout
 
-    def topbar(self, title, subtitle, add_btn=False):
+    def topbar(self, title, subtitle, add_btn=False, search_changed=None, search_attr=None):
         row = QHBoxLayout()
 
         left = QVBoxLayout()
@@ -479,6 +479,10 @@ class AdminUI(QWidget):
         search.setPlaceholderText("⌕  Tìm kiếm...")
         search.setFixedSize(320, 52)
         search.setStyleSheet(self.input_style())
+        if search_changed:
+            search.textChanged.connect(search_changed)
+        if search_attr:
+            setattr(self, search_attr, search)
 
         bell = QPushButton("♧")
         bell.setFixedSize(54, 54)
@@ -777,7 +781,12 @@ class AdminUI(QWidget):
 
     def files_page_ui(self):
         page, layout = self.page_base()
-        layout.addLayout(self.topbar("Quản lý file", "Quét và kiểm tra các file đang lưu trên Server"))
+        layout.addLayout(self.topbar(
+            "Quản lý file",
+            "Quét và kiểm tra các file đang lưu trên Server",
+            search_changed=self.apply_files_search_filter,
+            search_attr="files_search_input",
+        ))
 
         stats = QHBoxLayout()
         stats.setSpacing(30)
@@ -831,11 +840,37 @@ class AdminUI(QWidget):
         self.files_folders_card.value_label.setText(str(len(folders)))
         self.files_status_card.value_label.setText("Sẵn sàng")
 
+        self.files_all_rows = []
+        for item in files:
+            file_item = dict(item)
+            file_item["uploader"] = uploader_by_file.get(item["name"], "--")
+            self.files_all_rows.append(file_item)
+
+        self.apply_files_search_filter()
+
+    def apply_files_search_filter(self, *_args):
+        files = list(getattr(self, "files_all_rows", []))
+        keyword = ""
+        if hasattr(self, "files_search_input"):
+            keyword = self.files_search_input.text().strip().lower()
+
+        if keyword:
+            files = [
+                item for item in files
+                if keyword in item.get("name", "").lower()
+                or keyword in (item.get("folder") or "Uploads").lower()
+                or keyword in item.get("uploader", "").lower()
+                or keyword in item.get("type", "").lower()
+            ]
+
+        self.render_files_table(files)
+
+    def render_files_table(self, files):
         rows = [
             [
                 item["name"],
                 item["folder"] or "Uploads",
-                uploader_by_file.get(item["name"], "--"),
+                item.get("uploader", "--"),
                 item["type"],
                 self.format_bytes(item["size"]),
                 item["modified"],
@@ -845,7 +880,7 @@ class AdminUI(QWidget):
             for item in files
         ]
 
-        self.files_rows = files
+        self.files_rows = list(files)
         self.files_table.setRowCount(len(rows))
         for row_index, row_values in enumerate(rows):
             for col_index, value in enumerate(row_values):

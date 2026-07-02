@@ -47,6 +47,12 @@ THREAD_OPTIONS = {
 
 DEFAULT_DUPLICATE_POLICY = "S"
 MAX_VISIBLE_CHUNK_ROWS = 500
+SERVER_DISCONNECT_MESSAGE = (
+    "Mất kết nối tới Server trong khi upload. "
+    "Server có thể đã bị tắt hoặc ngắt kết nối. "
+    "Vui lòng bật lại Server rồi thử lại."
+)
+EMPTY_FILE_MESSAGE = "File rỗng 0 byte không hợp lệ. Vui lòng chọn file có dữ liệu để upload."
 
 
 class DropArea(QFrame):
@@ -112,6 +118,35 @@ class UploadUI(QWidget):
         self.chunk_status_signal.connect(self.update_chunk_status)
         self.chunk_summary_signal.connect(self.update_chunk_summary)
         self.check_server_connection_async()
+
+    def is_server_disconnect_error(self, error):
+        text = str(error).lower()
+        winerror = getattr(error, "winerror", None)
+        if winerror in (10053, 10054, 10060, 10061):
+            return True
+        if isinstance(error, (ConnectionError, TimeoutError)):
+            return True
+        markers = (
+            "winerror 10053",
+            "winerror 10054",
+            "winerror 10060",
+            "winerror 10061",
+            "connectionrefusederror",
+            "connectionreseterror",
+            "no connection could be made",
+            "actively refused",
+            "forcibly closed",
+            "kết nối bị đóng",
+            "connection timed out",
+            "timed out",
+        )
+        return any(marker in text for marker in markers)
+
+    def upload_failure_message(self, error, multipart=False):
+        if self.is_server_disconnect_error(error):
+            return SERVER_DISCONNECT_MESSAGE
+        prefix = "Upload multi-chunk thất bại" if multipart else "Upload thất bại"
+        return f"{prefix}: {error}"
 
     def build_ui(self):
         layout = QVBoxLayout(self)
@@ -546,9 +581,14 @@ class UploadUI(QWidget):
             QMessageBox.warning(self, "UPLOWER", "Vui lòng chọn một file hợp lệ.")
             return
 
-        self.selected_file = file_path
         filename = os.path.basename(file_path)
         size = os.path.getsize(file_path)
+        if size <= 0:
+            self.clear_selected_file()
+            QMessageBox.warning(self, "UPLOWER", EMPTY_FILE_MESSAGE)
+            return
+
+        self.selected_file = file_path
         self.file_label.setText(filename)
         self.info_label.setText(f"File: {filename}  |  Dung lượng: {self.format_bytes(size)}  |  Trạng thái: Sẵn sàng")
         self.progress.setValue(0)
@@ -675,6 +715,10 @@ class UploadUI(QWidget):
     def start_upload(self):
         if not self.selected_file:
             self.show_no_file_warning()
+            return
+        if not os.path.isfile(self.selected_file) or os.path.getsize(self.selected_file) <= 0:
+            QMessageBox.warning(self, "UPLOWER", EMPTY_FILE_MESSAGE)
+            self.clear_selected_file()
             return
         if not self.probe_server_connection():
             self.set_server_status(False, f"Server: Chưa kết nối {self.server_host}:{self.server_port}")
@@ -914,12 +958,13 @@ class UploadUI(QWidget):
                     user_name=self.user_name,
                 )
             else:
+                message = self.upload_failure_message(e)
                 add_upload_record(
                     file_path,
                     file_size,
                     server_text,
                     "Failed",
-                    message=str(e),
+                    message=message,
                     user_email=self.user_email,
                     user_name=self.user_name,
                 )
@@ -930,12 +975,12 @@ class UploadUI(QWidget):
                         save_upload_log(
                             user_email=self.user_email,
                             action="upload_failed",
-                            description=f"Upload thất bại {file_name}: {e}"
+                            description=f"Upload thất bại {file_name}: {message}"
                         )
                     except Exception as log_error:
                         print("SQL Server log failed error:", log_error)
 
-            self.finished_signal.emit(False, f"Upload thất bại: {e}")
+            self.finished_signal.emit(False, self.upload_failure_message(e))
         finally:
             if self.socket_client:
                 self.socket_client.close()
@@ -1096,6 +1141,8 @@ class UploadUI(QWidget):
 
             if errors:
                 self.abort_multipart_session(session_id)
+                if any(self.is_server_disconnect_error(error) for error in errors):
+                    raise ConnectionError(SERVER_DISCONNECT_MESSAGE)
                 raise RuntimeError("; ".join(errors[:3]))
 
             if len(completed_chunks) != total_chunks:
@@ -1166,13 +1213,13 @@ class UploadUI(QWidget):
                 message = "Multi-chunk upload stopped by user"
             else:
                 status = "Failed"
-                message = str(e)
+                message = self.upload_failure_message(e, multipart=True)
                 if save_upload_log:
                     try:
                         save_upload_log(
                             user_email=self.user_email,
                             action="upload_failed",
-                            description=f"Upload multi-chunk thất bại {file_name}: {e}"
+                            description=f"Upload multi-chunk thất bại {file_name}: {message}"
                         )
                     except Exception as log_error:
                         print("SQL Server log multi-chunk failed error:", log_error)
@@ -1186,7 +1233,7 @@ class UploadUI(QWidget):
                 user_email=self.user_email,
                 user_name=self.user_name,
             )
-            self.finished_signal.emit(False, f"Upload multi-chunk thất bại: {e}")
+            self.finished_signal.emit(False, message)
         finally:
             if self.socket_client:
                 self.socket_client.close()
@@ -1203,7 +1250,10 @@ class UploadUI(QWidget):
             manager = UploadManager(sock)
             manager.abort_multipart_upload(session_id)
         except Exception as e:
-            print("Abort multi-chunk upload error:", e)
+            if self.is_server_disconnect_error(e):
+                print("Không thể hủy phiên upload vì Server đã ngắt kết nối.")
+            else:
+                print("Abort multi-chunk upload error:", e)
         finally:
             abort_client.close()
 

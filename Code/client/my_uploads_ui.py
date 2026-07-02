@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -24,6 +25,7 @@ class MyUploadsUI(QWidget):
         self.current_user = current_user or {}
         self.user_email = str(self.current_user.get("email", "")).strip().lower()
         self.records = []
+        self.filtered_records = []
         self.setStyleSheet(PAGE_STYLE)
         self.build_ui()
         self.refresh_history()
@@ -52,8 +54,15 @@ class MyUploadsUI(QWidget):
         clear_btn.setStyleSheet(self.button_style())
         clear_btn.clicked.connect(self.clear_history)
 
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Tìm theo tên file...")
+        self.search_input.setFixedSize(260, 46)
+        self.search_input.setStyleSheet(self.search_input_style())
+        self.search_input.textChanged.connect(self.apply_search_filter)
+
         top.addLayout(title_box)
         top.addStretch()
+        top.addWidget(self.search_input)
         top.addWidget(refresh_btn)
         top.addWidget(clear_btn)
         layout.addLayout(top)
@@ -89,9 +98,28 @@ class MyUploadsUI(QWidget):
 
     def refresh_history(self):
         self.records = load_upload_history(self.user_email)
+        self.apply_search_filter()
+
+    def apply_search_filter(self, *_args):
+        keyword = ""
+        if hasattr(self, "search_input"):
+            keyword = self.search_input.text().strip().lower()
+
+        if keyword:
+            records = [
+                record for record in self.records
+                if keyword in str(record.get("file_name", "")).lower()
+            ]
+        else:
+            records = list(self.records)
+
+        self.render_records(records)
+
+    def render_records(self, records):
+        self.filtered_records = list(records)
         self.table.setRowCount(0)
 
-        for row, record in enumerate(self.records):
+        for row, record in enumerate(self.filtered_records):
             self.table.insertRow(row)
             values = [
                 record.get("time", ""),
@@ -113,11 +141,11 @@ class MyUploadsUI(QWidget):
             self.table.setCellWidget(row, 6, open_btn)
             self.table.setRowHeight(row, 42)
 
-        total = len(self.records)
-        success = sum(1 for r in self.records if r.get("status") == "Verified")
-        skipped = sum(1 for r in self.records if r.get("status") == "Skipped")
+        total = len(self.filtered_records)
+        success = sum(1 for r in self.filtered_records if r.get("status") == "Verified")
+        skipped = sum(1 for r in self.filtered_records if r.get("status") == "Skipped")
         failed = total - success - skipped
-        total_size = sum(int(r.get("file_size", 0) or 0) for r in self.records if r.get("status") == "Verified")
+        total_size = sum(int(r.get("file_size", 0) or 0) for r in self.filtered_records if r.get("status") == "Verified")
         self.total_card.value_label.setText(str(total))
         self.success_card.value_label.setText(str(success))
         self.skipped_card.value_label.setText(str(skipped))
@@ -129,9 +157,9 @@ class MyUploadsUI(QWidget):
         self.refresh_history()
 
     def open_local_file(self, index):
-        if index < 0 or index >= len(self.records):
+        if index < 0 or index >= len(self.filtered_records):
             return
-        file_path = self.records[index].get("file_path", "")
+        file_path = self.filtered_records[index].get("file_path", "")
         if not file_path or not os.path.exists(file_path):
             QMessageBox.warning(self, "UPLOWER", "Không tìm thấy file gốc trên máy client.")
             return
@@ -185,6 +213,25 @@ class MyUploadsUI(QWidget):
         QPushButton:hover {{ border:1px solid {PRIMARY}; background:#171832; }}
         QPushButton:pressed {{ background:#30174f; }}
         QPushButton:disabled {{ color:#64748b; border:1px solid #26324a; }}
+        """
+
+    def search_input_style(self):
+        return f"""
+        QLineEdit {{
+            background:{CARD2};
+            color:white;
+            border:1px solid #334155;
+            border-radius:12px;
+            padding-left:14px;
+            font-size:15px;
+        }}
+        QLineEdit:hover {{
+            border:1px solid {PRIMARY};
+            background:#171832;
+        }}
+        QLineEdit:focus {{
+            border:1px solid {PRIMARY};
+        }}
         """
 
     def open_button_style(self):
