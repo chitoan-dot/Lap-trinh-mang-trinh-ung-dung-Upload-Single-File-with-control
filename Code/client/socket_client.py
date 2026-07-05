@@ -11,7 +11,7 @@ class SocketClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.settimeout(self.timeout)
         self.sock.connect((self.host, self.port))
-        self.sock.settimeout(None)
+        self.sock.settimeout(30 if self.timeout >= 10 else self.timeout)
         return self.sock
 
     def close(self):

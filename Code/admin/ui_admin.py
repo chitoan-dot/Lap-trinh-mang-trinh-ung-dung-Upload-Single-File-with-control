@@ -58,12 +58,13 @@ class AdminUI(QWidget):
 
         self.profile_page = ProfileUI(role="admin", current_user=self.current_user)
         self.profile_page.profile_saved.connect(self.refresh_account_badge)
+        self.server_page = ServerMonitorUI()
         pages = [
             self.dashboard(),
             self.users_page_ui(),
             self.files_page_ui(),
             self.analytics_page_ui(),
-            ServerMonitorUI(),
+            self.server_page,
             self.profile_page,
         ]
 
@@ -74,6 +75,15 @@ class AdminUI(QWidget):
         root.addWidget(self.stack)
 
         self.set_active(self.btn_dashboard, 0)
+
+    def shutdown_server_page(self):
+        server_page = getattr(self, "server_page", None)
+        if server_page and getattr(server_page, "running", False):
+            server_page.stop_server()
+
+    def closeEvent(self, event):
+        self.shutdown_server_page()
+        super().closeEvent(event)
 
     def create_sidebar(self):
         side = QFrame()
@@ -1247,6 +1257,7 @@ class AdminUI(QWidget):
 
     def logout(self):
         from auth.login_ui import LoginUI
+        self.shutdown_server_page()
         self.login_window = LoginUI(initial_role="admin")
         self.login_window.show()
         self.close()

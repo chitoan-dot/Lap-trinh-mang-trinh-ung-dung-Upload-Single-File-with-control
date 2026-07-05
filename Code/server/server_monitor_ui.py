@@ -47,6 +47,8 @@ class ServerMonitorUI(QWidget):
         self.listen_thread = None
 
         self.clients = {}
+        self.client_sockets = set()
+        self.client_socket_lock = threading.Lock()
         self.transfer_rows = {}
         self.transfer_paths = {}
         self.multipart_sessions = {}
@@ -64,6 +66,11 @@ class ServerMonitorUI(QWidget):
         self.log_signal.connect(self.add_log)
         self.stat_signal.connect(self.update_stats)
         self.transfer_signal.connect(self.update_transfer_row)
+
+    def closeEvent(self, event):
+        if self.running:
+            self.stop_server()
+        super().closeEvent(event)
 
     def page_style(self):
         return f"""
@@ -460,6 +467,7 @@ class ServerMonitorUI(QWidget):
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.server_socket.bind((self.host, self.port))
             self.server_socket.listen(10)
+            self.server_socket.settimeout(0.5)
 
             self.running = True
             self.started_at = time.time()
@@ -490,14 +498,21 @@ class ServerMonitorUI(QWidget):
 
     def stop_server(self):
         self.running = False
+        server_socket = self.server_socket
+        self.server_socket = None
 
         try:
-            if self.server_socket:
-                self.server_socket.close()
+            if server_socket:
+                try:
+                    server_socket.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
+                server_socket.close()
         except Exception:
             pass
 
-        self.server_socket = None
+        self.close_active_client_sockets()
+        self.abort_all_multipart_sessions()
 
         self.status_label.setText("ĐÃ DỪNG")
         self.status_label.setStyleSheet("""
@@ -514,10 +529,64 @@ class ServerMonitorUI(QWidget):
         self.update_buttons()
         self.stat_signal.emit()
 
+    def register_client_socket(self, client_socket):
+        with self.client_socket_lock:
+            self.client_sockets.add(client_socket)
+
+    def unregister_client_socket(self, client_socket):
+        with self.client_socket_lock:
+            self.client_sockets.discard(client_socket)
+
+    def close_active_client_sockets(self):
+        with self.client_socket_lock:
+            sockets = list(self.client_sockets)
+            self.client_sockets.clear()
+
+        for client_socket in sockets:
+            self.force_close_socket(client_socket)
+
+    def force_close_socket(self, sock):
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("HH", 1, 0))
+        except Exception:
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            except Exception:
+                pass
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+    def abort_all_multipart_sessions(self):
+        with self.multipart_lock:
+            sessions = list(self.multipart_sessions.values())
+            self.multipart_sessions.clear()
+
+        for session in sessions:
+            file_path = session.get("path")
+            file_name = session.get("name", "")
+            row_key = session.get("row_key", "")
+            if row_key:
+                self.transfer_signal.emit(row_key, file_name, "multi-chunk", "0%", "Stopped", file_path or "")
+            if file_path:
+                self.remove_incomplete_file(file_path)
+
+        if sessions:
+            self.log_signal.emit(f"Da huy {len(sessions)} phien multi-chunk dang chay.")
+
     def listen_loop(self):
+        server_socket = self.server_socket
         while self.running:
             try:
-                client_socket, addr = self.server_socket.accept()
+                client_socket, addr = server_socket.accept()
+                if not self.running:
+                    self.force_close_socket(client_socket)
+                    break
                 thread = threading.Thread(
                     target=self.handle_client,
                     args=(client_socket, addr),
@@ -525,14 +594,19 @@ class ServerMonitorUI(QWidget):
                 )
                 thread.start()
 
+            except socket.timeout:
+                continue
             except Exception:
                 break
 
     def handle_client(self, client_socket, addr):
         addr_text = f"{addr[0]}:{addr[1]}"
+        self.register_client_socket(client_socket)
 
         try:
             command = self.recv_exact(client_socket, 1).decode(errors="replace")
+            if not self.running:
+                raise RuntimeError("Server da dung.")
             if command == "P":
                 client_socket.sendall(b"OK")
                 return
@@ -613,7 +687,7 @@ class ServerMonitorUI(QWidget):
             mode = "ab" if offset > 0 and duplicate_policy not in ("O", "N") else "wb"
 
             with open(save_path, mode) as f:
-                while received < file_size:
+                while self.running and received < file_size:
                     data = client_socket.recv(65536)
                     if not data:
                         break
@@ -640,6 +714,12 @@ class ServerMonitorUI(QWidget):
                         last_received = received
                         self.stat_signal.emit()
 
+            if not self.running:
+                self.transfer_signal.emit(row_key, safe_name, addr_text, "0%", "Stopped", save_path)
+                self.log_signal.emit(f"Da dung Server khi dang nhan file: {safe_name}")
+                self.remove_incomplete_file(save_path)
+                return
+
             actual_hash = self.calculate_file_hash(save_path)
             if actual_hash != expected_hash:
                 client_socket.sendall(SERVER_VERIFY_FAILED)
@@ -659,6 +739,7 @@ class ServerMonitorUI(QWidget):
             self.log_signal.emit(f"Lỗi nhận file từ {addr_text}: {e}")
 
         finally:
+            self.unregister_client_socket(client_socket)
             try:
                 client_socket.close()
             except Exception:
@@ -708,6 +789,8 @@ class ServerMonitorUI(QWidget):
             self.log_signal.emit(f"Lỗi xác thực từ {addr[0]}:{addr[1]}: {e}")
 
     def handle_multipart_client(self, client_socket, addr):
+        if not self.running:
+            raise RuntimeError("Server da dung.")
         mode = self.recv_exact(client_socket, 1)
         if mode == MULTIPART_INIT:
             self.handle_multipart_init(client_socket, addr)
@@ -805,7 +888,7 @@ class ServerMonitorUI(QWidget):
 
         received = 0
         with open(session["path"], "r+b") as f:
-            while received < part_size:
+            while self.running and received < part_size:
                 data = client_socket.recv(min(65536, part_size - received))
                 if not data:
                     self.transfer_signal.emit(session["row_key"], session["name"], "multi-chunk", "0%", "Đã dừng", session["path"])
@@ -817,6 +900,11 @@ class ServerMonitorUI(QWidget):
                 received += len(data)
                 self.total_bytes += len(data)
                 self.update_multipart_progress(session, part_index, received)
+
+        if not self.running:
+            self.transfer_signal.emit(session["row_key"], session["name"], "multi-chunk", "0%", "Stopped", session["path"])
+            self.log_signal.emit(f"Da dung Server khi dang nhan chunk {part_index + 1} cua {session['name']}.")
+            return
 
         with session["file_lock"]:
             session["received_by_part"][part_index] = part_size

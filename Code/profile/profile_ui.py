@@ -23,6 +23,8 @@ from layout.theme import *
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 PROFILE_FILE = os.path.join(BASE_DIR, "config", "profile_data.json")
+PROFILE_AVATAR_SIZE = 120
+PROFILE_AVATAR_RADIUS = PROFILE_AVATAR_SIZE // 2
 
 
 class ProfileUI(QWidget):
@@ -153,42 +155,45 @@ class ProfileUI(QWidget):
     def identity_card(self):
         card = QFrame()
         card.setObjectName("ProfileCard")
-        card.setMinimumHeight(330)
+        card.setMinimumHeight(300)
         card.setStyleSheet(self.card_style())
         box = QVBoxLayout(card)
-        box.setAlignment(Qt.AlignCenter)
-        box.setSpacing(14)
+        box.setContentsMargins(20, 18, 20, 18)
+        box.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        box.setSpacing(10)
 
         self.avatar_label = QLabel("AD" if self.role == "admin" else "US")
         self.avatar_label.setAlignment(Qt.AlignCenter)
-        self.avatar_label.setFixedSize(150, 150)
+        self.avatar_label.setFixedSize(PROFILE_AVATAR_SIZE, PROFILE_AVATAR_SIZE)
         self.avatar_label.setStyleSheet(f"""
         QLabel {{
             background:{GRADIENT};
             color:white;
-            border-radius:75px;
-            font-size:42px;
+            border-radius:{PROFILE_AVATAR_RADIUS}px;
+            font-size:36px;
             font-weight:900;
         }}
         """)
         self.update_avatar_display()
 
         choose_avatar_btn = QPushButton("Chọn ảnh")
-        choose_avatar_btn.setFixedSize(130, 38)
+        choose_avatar_btn.setFixedSize(116, 34)
         choose_avatar_btn.setStyleSheet(self.secondary_button_style())
         choose_avatar_btn.clicked.connect(self.choose_avatar)
 
         self.name_label = QLabel()
         self.name_label.setAlignment(Qt.AlignCenter)
-        self.name_label.setStyleSheet("font-size:25px; font-weight:900;")
+        self.name_label.setWordWrap(True)
+        self.name_label.setMinimumHeight(32)
+        self.name_label.setStyleSheet("font-size:22px; font-weight:900;")
         self.role_label = QLabel()
         self.role_label.setAlignment(Qt.AlignCenter)
-        self.role_label.setStyleSheet(f"font-size:17px; color:{TEXT2};")
+        self.role_label.setStyleSheet(f"font-size:15px; color:{TEXT2};")
         self.department_label = QLabel()
         self.department_label.setAlignment(Qt.AlignCenter)
-        self.department_label.setStyleSheet(f"font-size:15px; color:{TEXT2};")
+        self.department_label.setStyleSheet(f"font-size:14px; color:{TEXT2};")
 
-        box.addWidget(self.avatar_label)
+        box.addWidget(self.avatar_label, alignment=Qt.AlignCenter)
         box.addWidget(choose_avatar_btn, alignment=Qt.AlignCenter)
         box.addWidget(self.name_label)
         box.addWidget(self.role_label)
@@ -378,14 +383,19 @@ class ProfileUI(QWidget):
             if not pixmap.isNull():
                 self.avatar_label.setText("")
                 self.avatar_label.setPixmap(
-                    pixmap.scaled(150, 150, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                    pixmap.scaled(
+                        PROFILE_AVATAR_SIZE,
+                        PROFILE_AVATAR_SIZE,
+                        Qt.KeepAspectRatioByExpanding,
+                        Qt.SmoothTransformation,
+                    )
                 )
-                self.avatar_label.setStyleSheet("""
-                QLabel {
+                self.avatar_label.setStyleSheet(f"""
+                QLabel {{
                     background:#111827;
                     border:2px solid #475569;
-                    border-radius:75px;
-                }
+                    border-radius:{PROFILE_AVATAR_RADIUS}px;
+                }}
                 """)
                 return
 
@@ -395,8 +405,8 @@ class ProfileUI(QWidget):
         QLabel {{
             background:{GRADIENT};
             color:white;
-            border-radius:75px;
-            font-size:42px;
+            border-radius:{PROFILE_AVATAR_RADIUS}px;
+            font-size:36px;
             font-weight:900;
         }}
         """)
